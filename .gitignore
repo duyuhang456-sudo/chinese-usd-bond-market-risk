@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# 数据与临时产物（按需放开）
+# raw_data/
+# clean_data/
+# factors/
+# figures/
+
+# IDE
+.idea/
+.vscode/
