@@ -214,13 +214,19 @@ def main() -> None:
     })
 
     # 2) 其余日度序列对齐主日历（汇率 / OAS 利差 / 标的净值）
-    for name, cols, dc in [
-        ("fred_DEXCHUS.csv", ["DEXCHUS"], "date"),
-        ("fred_BAMLEMIBHGCRPIOAS.csv", ["BAMLEMIBHGCRPIOAS"], "date"),
-        ("benchmark_9141HK.csv", ["Close", "Adj Close"], "Date"),
+    #    (原始文件, 数值列, 日期列, 输出 clean 文件名)
+    for name, cols, dc, out in [
+        ("fred_DEXCHUS.csv", ["DEXCHUS"], "date", "fred_DEXCHUS_clean.csv"),
+        ("fred_BAMLEMIBHGCRPIOAS.csv", ["BAMLEMIBHGCRPIOAS"], "date",
+         "fred_BAMLEMIBHGCRPIOAS_clean.csv"),
+        ("benchmark_9141HK.csv", ["Close", "Adj Close"], "Date",
+         "benchmark_9141HK_clean.csv"),
+        # HKD 柜台 3141.HK（备用对照线，用于 9141 报价陈旧度对比实验）
+        ("alt_3141HK_AsiaUSDIG_HKD.csv", ["Close", "Adj Close"], "Date",
+         "benchmark_3141HK_clean.csv"),
     ]:
         panel, meta, runs = clean_daily(name, cols, master, date_col=dc)
-        save_clean(panel, name.replace(".csv", "_clean.csv"))
+        save_clean(panel, out)
         report.append(meta)
         all_runs += runs
         print(f"    {name}: 填充 {len(runs)} 段 / {meta['ffill_cells'] + meta['lin_cells']} 单元格")
