@@ -1,0 +1,7 @@
+﻿file,frequency,span_start,span_end,expected_days,present_before_fill,completeness_pct,ffill_cells,lin_cells,fill_runs
+treasury_yield_curve.csv,日度(主日历),2021-08-02,2026-09-04,1274,15288,100.0,0,0,0
+fred_DEXCHUS.csv,日度,2021-08-02,2026-08-28,1269,1267,99.84,2,0,2
+fred_BAMLEMIBHGCRPIOAS.csv,日度,2023-09-05,2026-09-03,750,750,100.0,0,0,0
+benchmark_9141HK.csv,日度,2021-08-02,2026-09-04,1274,2414,94.74,134,0,108
+fred_FEDFUNDS.csv,月度,2021-08-01,2026-08-01,61,61,100.0,0,0,0
+fred_CPIAUCSL.csv,月度,2021-08-01,2026-07-01,59,59,100.0,0,0,0

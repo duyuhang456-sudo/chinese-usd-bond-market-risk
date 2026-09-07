@@ -1,0 +1,111 @@
+﻿file,column,start,end,length,method
+fred_DEXCHUS.csv,DEXCHUS,2021-12-31,2021-12-31,1,前值填充
+fred_DEXCHUS.csv,DEXCHUS,2023-11-10,2023-11-10,1,前值填充
+benchmark_9141HK.csv,Close,2021-09-22,2021-09-22,1,前值填充
+benchmark_9141HK.csv,Close,2021-10-01,2021-10-01,1,前值填充
+benchmark_9141HK.csv,Close,2021-10-13,2021-10-14,2,前值填充
+benchmark_9141HK.csv,Close,2021-12-27,2021-12-27,1,前值填充
+benchmark_9141HK.csv,Close,2022-02-01,2022-02-03,3,前值填充
+benchmark_9141HK.csv,Close,2022-04-05,2022-04-05,1,前值填充
+benchmark_9141HK.csv,Close,2022-04-18,2022-04-18,1,前值填充
+benchmark_9141HK.csv,Close,2022-05-02,2022-05-02,1,前值填充
+benchmark_9141HK.csv,Close,2022-05-09,2022-05-09,1,前值填充
+benchmark_9141HK.csv,Close,2022-06-03,2022-06-03,1,前值填充
+benchmark_9141HK.csv,Close,2022-07-01,2022-07-01,1,前值填充
+benchmark_9141HK.csv,Close,2022-09-12,2022-09-12,1,前值填充
+benchmark_9141HK.csv,Close,2022-10-04,2022-10-04,1,前值填充
+benchmark_9141HK.csv,Close,2022-12-27,2022-12-27,1,前值填充
+benchmark_9141HK.csv,Close,2023-01-23,2023-01-25,3,前值填充
+benchmark_9141HK.csv,Close,2023-04-05,2023-04-05,1,前值填充
+benchmark_9141HK.csv,Close,2023-04-07,2023-04-10,2,前值填充
+benchmark_9141HK.csv,Close,2023-05-01,2023-05-01,1,前值填充
+benchmark_9141HK.csv,Close,2023-05-26,2023-05-26,1,前值填充
+benchmark_9141HK.csv,Close,2023-06-22,2023-06-22,1,前值填充
+benchmark_9141HK.csv,Close,2023-07-17,2023-07-17,1,前值填充
+benchmark_9141HK.csv,Close,2023-09-01,2023-09-01,1,前值填充
+benchmark_9141HK.csv,Close,2023-09-08,2023-09-08,1,前值填充
+benchmark_9141HK.csv,Close,2023-10-02,2023-10-02,1,前值填充
+benchmark_9141HK.csv,Close,2023-10-23,2023-10-23,1,前值填充
+benchmark_9141HK.csv,Close,2023-12-26,2023-12-26,1,前值填充
+benchmark_9141HK.csv,Close,2024-02-12,2024-02-13,2,前值填充
+benchmark_9141HK.csv,Close,2024-04-01,2024-04-01,1,前值填充
+benchmark_9141HK.csv,Close,2024-04-04,2024-04-04,1,前值填充
+benchmark_9141HK.csv,Close,2024-05-01,2024-05-01,1,前值填充
+benchmark_9141HK.csv,Close,2024-05-15,2024-05-15,1,前值填充
+benchmark_9141HK.csv,Close,2024-06-10,2024-06-10,1,前值填充
+benchmark_9141HK.csv,Close,2024-07-01,2024-07-01,1,前值填充
+benchmark_9141HK.csv,Close,2024-09-06,2024-09-06,1,前值填充
+benchmark_9141HK.csv,Close,2024-09-18,2024-09-18,1,前值填充
+benchmark_9141HK.csv,Close,2024-10-01,2024-10-01,1,前值填充
+benchmark_9141HK.csv,Close,2024-10-11,2024-10-11,1,前值填充
+benchmark_9141HK.csv,Close,2024-12-26,2024-12-26,1,前值填充
+benchmark_9141HK.csv,Close,2025-01-29,2025-01-31,3,前值填充
+benchmark_9141HK.csv,Close,2025-04-04,2025-04-04,1,前值填充
+benchmark_9141HK.csv,Close,2025-04-21,2025-04-21,1,前值填充
+benchmark_9141HK.csv,Close,2025-05-01,2025-05-01,1,前值填充
+benchmark_9141HK.csv,Close,2025-05-05,2025-05-05,1,前值填充
+benchmark_9141HK.csv,Close,2025-07-01,2025-07-01,1,前值填充
+benchmark_9141HK.csv,Close,2025-10-01,2025-10-01,1,前值填充
+benchmark_9141HK.csv,Close,2025-10-07,2025-10-07,1,前值填充
+benchmark_9141HK.csv,Close,2025-10-24,2025-10-24,1,前值填充
+benchmark_9141HK.csv,Close,2025-10-29,2025-10-29,1,前值填充
+benchmark_9141HK.csv,Close,2025-12-26,2025-12-26,1,前值填充
+benchmark_9141HK.csv,Close,2026-02-17,2026-02-19,3,前值填充
+benchmark_9141HK.csv,Close,2026-03-06,2026-03-06,1,前值填充
+benchmark_9141HK.csv,Close,2026-04-03,2026-04-07,3,前值填充
+benchmark_9141HK.csv,Close,2026-05-01,2026-05-01,1,前值填充
+benchmark_9141HK.csv,Close,2026-07-01,2026-07-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2021-09-22,2021-09-22,1,前值填充
+benchmark_9141HK.csv,Adj Close,2021-10-01,2021-10-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2021-10-13,2021-10-14,2,前值填充
+benchmark_9141HK.csv,Adj Close,2021-12-27,2021-12-27,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-02-01,2022-02-03,3,前值填充
+benchmark_9141HK.csv,Adj Close,2022-04-05,2022-04-05,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-04-18,2022-04-18,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-05-02,2022-05-02,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-05-09,2022-05-09,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-06-03,2022-06-03,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-07-01,2022-07-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-09-12,2022-09-12,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-10-04,2022-10-04,1,前值填充
+benchmark_9141HK.csv,Adj Close,2022-12-27,2022-12-27,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-01-23,2023-01-25,3,前值填充
+benchmark_9141HK.csv,Adj Close,2023-04-05,2023-04-05,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-04-07,2023-04-10,2,前值填充
+benchmark_9141HK.csv,Adj Close,2023-05-01,2023-05-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-05-26,2023-05-26,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-06-22,2023-06-22,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-07-17,2023-07-17,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-09-01,2023-09-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-09-08,2023-09-08,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-10-02,2023-10-02,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-10-23,2023-10-23,1,前值填充
+benchmark_9141HK.csv,Adj Close,2023-12-26,2023-12-26,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-02-12,2024-02-13,2,前值填充
+benchmark_9141HK.csv,Adj Close,2024-04-01,2024-04-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-04-04,2024-04-04,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-05-01,2024-05-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-05-15,2024-05-15,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-06-10,2024-06-10,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-07-01,2024-07-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-09-06,2024-09-06,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-09-18,2024-09-18,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-10-01,2024-10-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-10-11,2024-10-11,1,前值填充
+benchmark_9141HK.csv,Adj Close,2024-12-26,2024-12-26,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-01-29,2025-01-31,3,前值填充
+benchmark_9141HK.csv,Adj Close,2025-04-04,2025-04-04,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-04-21,2025-04-21,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-05-01,2025-05-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-05-05,2025-05-05,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-07-01,2025-07-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-10-01,2025-10-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-10-07,2025-10-07,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-10-24,2025-10-24,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-10-29,2025-10-29,1,前值填充
+benchmark_9141HK.csv,Adj Close,2025-12-26,2025-12-26,1,前值填充
+benchmark_9141HK.csv,Adj Close,2026-02-17,2026-02-19,3,前值填充
+benchmark_9141HK.csv,Adj Close,2026-03-06,2026-03-06,1,前值填充
+benchmark_9141HK.csv,Adj Close,2026-04-03,2026-04-07,3,前值填充
+benchmark_9141HK.csv,Adj Close,2026-05-01,2026-05-01,1,前值填充
+benchmark_9141HK.csv,Adj Close,2026-07-01,2026-07-01,1,前值填充
