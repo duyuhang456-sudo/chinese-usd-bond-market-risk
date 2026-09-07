@@ -34,6 +34,7 @@
 - [数据清洗说明（对齐 + 缺失值，含完整率报告解读）](docs/data_cleaning.md)
 - [异常值识别与事件校验说明（异常判定表解读）](docs/outlier_check.md)
 - [三大核心风险因子构建与校验说明（含利差剥离与久期估计）](docs/factors.md)
+- [报价陈旧出路对照（周度 / 官方 NAV / 真实久期修正 → 采用 NAV，阶段二输入口径）](docs/staleness_remedy.md)
 
 *每周计划与交付物随进度在本仓库更新。*
 

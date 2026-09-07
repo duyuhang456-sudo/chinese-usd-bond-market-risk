@@ -224,6 +224,9 @@ def main() -> None:
         # HKD 柜台 3141.HK（备用对照线，用于 9141 报价陈旧度对比实验）
         ("alt_3141HK_AsiaUSDIG_HKD.csv", ["Close", "Adj Close"], "Date",
          "benchmark_3141HK_clean.csv"),
+        # 9141.HK 官方日度 NAV（USD/单位，MoneyDJ 镜像，官方锚点已验证）
+        ("nav_9141HK_MoneyDJ.csv", ["nav_usd"], "date",
+         "nav_9141HK_clean.csv"),
     ]:
         panel, meta, runs = clean_daily(name, cols, master, date_col=dc)
         save_clean(panel, out)
