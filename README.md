@@ -11,7 +11,7 @@
 | 数据 | 来源 | 频率 |
 |---|---|---|
 | 美债收益率曲线（1M–30Y） | U.S. Treasury (treasury.gov) | 日度 |
-| iShares 中国投资级美元债 ETF（MCHB） | Yahoo Finance | 日度 |
+| ChinaAMC 亚洲美元投资级债 ETF（**9141.HK**，组合代理） | Yahoo Finance | 日度 |
 | 人民币兑美元即期汇率（CNY/USD） | FRED `DEXCHUS` | 日度 |
 | 新兴市场投资级公司债利差（OAS） | FRED `BAMLEMIBHGCRPIOAS` 族 | 日度 |
 | 美联储政策利率 / 美国 CPI | FRED `FEDFUNDS` / `CPIAUCSL` | 月 / 日 |
