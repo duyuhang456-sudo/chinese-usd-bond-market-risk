@@ -1,8 +1,17 @@
 # 三大核心风险因子构建与校验说明（9/10）
 
-> 对应需求文档「阶段一 · 风险因子拆解」。产出（9141.HK 为正式口径，3141.HK 为对照）：
-> `factors/factor_table.csv`、`factors/factor_table_3141HK.csv`、`factors/benchmark_comparison.csv`、
-> `figures/spread_factor_vs_oas.png`、`figures/spread_factor_vs_oas_3141HK.png`、脚本 `code/build_factors.py`。
+> 对应需求文档「阶段一 · 风险因子拆解」。
+>
+> **两种口径**：`factors/factor_table_nav.csv` = **正式表**（9141.HK 官方 NAV 日度、lag=0，
+> 后续任务默认输入，见 [报价陈旧出路对照](staleness_remedy.md)）；`factors/factor_table.csv` = 9141.HK
+> **市价**日度口径（lag=1，供价格/溢价分析对照）；`factors/factor_table_3141HK.csv` = HKD 柜台对照（否决）。
+>
+> 产出：脚本 `code/build_factors.py`（市价）、`code/build_factors_nav.py`（NAV 正式表）、
+> 对照表 `factors/benchmark_comparison.csv`、图 `figures/spread_factor_vs_oas.png`（市价）、
+> `figures/spread_factor_vs_oas_nav.png`（NAV 正式表）、`figures/spread_factor_vs_oas_3141HK.png`。
+>
+> 本文「二~四节」以最早的市价口径讲述方法；**NAV 正式口径的唯一差异 = `etf_ret_pct` 换 NAV 收益、拆解 lag 换 0**，
+> 见 [NAV 因子表专节](#六nav-口径正式因子表lag0)。
 
 ## 一、因子定义
 
@@ -85,5 +94,17 @@
 - 正式输入：**9141.HK 官方 NAV 日度**（`clean_data/nav_9141HK_clean.csv`），与美股同日 → 拆解用 lag=0。
 - 价格 9141.HK 保留用途：溢价/流动性观察与「交易价 P&L」对照。
 - 3141.HK 因子表与对照表**存档备用**，不建议直接作日度 VaR 输入（非美元 + 柜台噪声 + 坏报价）。
-- 当前 `factors/factor_table.csv` = 9141.HK **市价**日度口径（lag=1，R²=0.23），仅供市价口径分析；
-  风险计量改用 NAV 后需按 lag=0 重建（阶段二做）。
+
+### 六、NAV 口径正式因子表（lag=0，已落地）
+
+`factors/factor_table.csv` = 9141.HK **市价**日度口径（lag=1，R²=0.23、久期 1.74y），仅作市价/溢价分析对照。
+
+按对照实验定案，风险计量正式输入改用 **9141.HK 官方 NAV 日度**并已重建为
+`factors/factor_table_nav.csv`（`code/build_factors_nav.py`，2026-09-07）：
+
+- `etf_ret_pct` = NAV 日对数收益（零收益 6.1%，非价格的 64.7%）；
+- 利差剥离为 **同日** `ret_nav(t)=α+β5·Δy5(t)+β10·Δy10(t)+ε`：**R²=0.668、等效久期 3.72 年**、
+  σ_ann 4.52% → 1 日 99% VaR(正态) 0.663%（市价口径 0.536% 低估约 24%）；
+- 利差代理 vs 同日 FRED OAS：ρ=−0.18（OAS 为 EM 级非紧基准，仅供交叉参考，详见 staleness_remedy.md）；
+- 图：`figures/spread_factor_vs_oas_nav.png`。**9/11 描述性统计与阶段二 VaR 均以此表为默认输入**；
+  复现：`./.venv/bin/python code/build_factors_nav.py`。
