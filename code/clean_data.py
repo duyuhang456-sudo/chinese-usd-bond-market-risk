@@ -201,6 +201,7 @@ def main() -> None:
         tsy[c] = filled
         runs += rr
     all_runs += runs
+    tsy["flag"] = 0                             # 统一携带 flag 列（本表无缺失则全 0）
     save_clean(tsy, "treasury_yield_curve_clean.csv")
     report.append({
         "file": "treasury_yield_curve.csv", "frequency": "日度(主日历)",
