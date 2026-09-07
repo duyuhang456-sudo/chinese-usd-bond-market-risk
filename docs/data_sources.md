@@ -13,7 +13,7 @@
 | 4 | 信用利差 | 新兴市场投资级公司债 OAS | [FRED](https://fred.stlouisfed.org/series/BAMLEMIBHGCRPIOAS) | BAMLEMIBHGCRPIOAS | 日 | 2023-09 ~ 2026-09（787 行）⚠️ |
 | 5 | 宏观基准 | 联邦基金有效利率 | [FRED](https://fred.stlouisfed.org/series/FEDFUNDS) | FEDFUNDS | 月 | 2021-08 ~ 2026-08（61 行） |
 | 6 | 宏观基准 | 美国 CPI 指数 | [FRED](https://fred.stlouisfed.org/series/CPIAUCSL) | CPIAUCSL | 月 | 2021-08 ~ 2026-07（59 行） |
-| 7 | 事件参考 | 金融风险事件时间线 | IMF/美联储/财经媒体 | — | — | 待建（用于异常值校验与压力情景） |
+| 7 | 事件参考 | 金融风险事件时间线 | IMF/美联储/财经媒体 | — | — | 已建：`events/risk_events_timeline.csv`（83 行，2021-08~2026-09，用于异常值校验与压力情景） |
 
 ### ⚠️ 数据可得性说明
 1. **FRED 利差系列（BAMLEMIBHGCRPIOAS）自 2023-09 才有数据**（约 3 年，非 5 年）。需求文档中该代码为扫描件 OCR，经核对以本表代码为准；历史偏短属源数据限制，信用利差因子及其外部校验需接受该窗口。

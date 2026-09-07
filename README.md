@@ -32,6 +32,8 @@
 - [第 1 周计划 · 第一阶段（PDF）](下周计划_第一阶段_数据体系搭建与风险因子拆解.pdf)
 - [数据源清单与下载说明](docs/data_sources.md)
 - [数据清洗说明（对齐 + 缺失值，含完整率报告解读）](docs/data_cleaning.md)
+- [异常值识别与事件校验说明（异常判定表解读）](docs/outlier_check.md)
+- [三大核心风险因子构建与校验说明（含利差剥离与久期估计）](docs/factors.md)
 
 *每周计划与交付物随进度在本仓库更新。*
 
@@ -39,7 +41,8 @@
 
 ```
 raw_data/    原始数据（CSV）
-clean_data/  清洗后数据（CSV）
+clean_data/  清洗后数据（CSV；含异常候选/判定表）
+events/      风险事件参考时间线（CSV，供异常校验与压力情景复用）
 factors/     构建的风险因子表
 code/        数据获取 / 清洗 / 建模代码
 figures/     可视化图表
