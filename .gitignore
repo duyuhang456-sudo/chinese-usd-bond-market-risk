@@ -9,11 +9,8 @@ __pycache__/
 venv/
 .ipynb_checkpoints/
 
-# 数据与临时产物（按需放开）
-# raw_data/
-# clean_data/
-# factors/
-# figures/
+# 数据（本地保留，不入库；Yahoo/FRED 数据仅个人研究用，可随时用脚本重下）
+raw_data/
 
 # IDE
 .idea/
