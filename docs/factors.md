@@ -2,9 +2,13 @@
 
 > 对应需求文档「阶段一 · 风险因子拆解」。
 >
-> **两种口径**：`factors/factor_table_nav.csv` = **正式表**（9141.HK 官方 NAV 日度、lag=0，
-> 后续任务默认输入，见 [报价陈旧出路对照](staleness_remedy.md)）；`factors/factor_table.csv` = 9141.HK
+> **两种口径**：`factors/factor_table_nav.csv` = **正式表（除权 NAV）**（9141.HK 官方 NAV 日度、lag=0，
+> 见 [报价陈旧出路对照](staleness_remedy.md)）；`factors/factor_table.csv` = 9141.HK
 > **市价**日度口径（lag=1，供价格/溢价分析对照）；`factors/factor_table_3141HK.csv` = HKD 柜台对照（否决）。
+>
+> **9/14 更新（导师反馈「分红复权」落地）**：VaR 建模默认输入升级为 **`factors/factor_table_nav_tr.csv`**（在除权 NAV 表上
+> 加回样本窗内 20 期分红：复权 USD 主口径 `etf_ret_tr_pct` + 人民币次口径 `etf_ret_rmb_pct`，见文末 §八）；
+> `factor_table_nav.csv`（除权 NAV）转作审计底/对照。
 >
 > 产出：脚本 `code/build_factors.py`（市价）、`code/build_factors_nav.py`（NAV 正式表）、
 > 对照表 `factors/benchmark_comparison.csv`、图 `figures/spread_factor_vs_oas.png`（市价）、
@@ -106,5 +110,49 @@
 - 利差剥离为 **同日** `ret_nav(t)=α+β5·Δy5(t)+β10·Δy10(t)+ε`：**R²=0.668、等效久期 3.72 年**、
   σ_ann 4.52% → 1 日 99% VaR(正态) 0.663%（市价口径 0.536% 低估约 24%）；
 - 利差代理 vs 同日 FRED OAS：ρ=−0.18（OAS 为 EM 级非紧基准，仅供交叉参考，详见 staleness_remedy.md）；
-- 图：`figures/spread_factor_vs_oas_nav.png`。**9/11 描述性统计与阶段二 VaR 均以此表为默认输入**；
+- 图：`figures/spread_factor_vs_oas_nav.png`。9/11 描述性统计以此表为输入；
   复现：`./.venv/bin/python code/build_factors_nav.py`。
+- **9/14 更新**：本表为**除权 NAV 口径**；阶段二 VaR 默认输入已升级为复权表 `factor_table_nav_tr.csv`（见 §八），本表转作审计底/对照。
+
+---
+
+### 七、信用利差代理的局限（VaR 归因的解释边界 · 导师反馈后补写）
+
+代理 `etf_spread_proxy_pct`（NAV 口径 = `etf_ret_pct − rate_attrib`）是建模时唯一可得的日度“利差面”，但使用它必须知道它不是什么：
+
+1. **本质是残差，不是可交易利差**——等于组合收益里未被 Δ5Y/Δ10Y 解释的部分，混有费率 / 估值时差 / 采样误差与真实利差变化，不能解释成某条真实 OAS 曲线的映射。
+2. **信噪比有限**：NAV 口径日 σ 0.164%、超额峰度 +10.5——单日值噪声大，宜作相对变化与尾部事件分析，不宜作点位 / 精确敞口。
+3. **外部交叉弱**：与同日 FRED EM IG OAS 相关仅 ≈0.18（市价滞后口径 ≈ −0.27），符号对、量级一般；EM 级基准非亚洲/中资紧基准，且 OAS 指数约 T+1 发布。
+4. **在 VaR 中的角色**：参数法（δ-normal）中作为一维“残差风险”因子进入协方差，暴露固定为 1、与利率因子正交——正交性保证 δ′Σδ 自洽
+   （√(δ′Σδ)≈组合经验 σ），但代价是“利差贡献”与“残差噪声”被混在一起，该因子不能当作精确信用利差敞口去对冲。
+5. **归因口径**：报告凡是说“利差驱动 / 利差 VaR”，均指此代理及其局限；若需把信用利差单独精确计量，须引入亚洲/中资级 OAS（iBoxx Asia / JACI 等），已列入遗留问题。
+
+这也解释了为何 VaR 结论要以「组合收益直接法（复权序列）」与「因子法」双轨互证（见 `docs/phase2_spec.md` §4）：单靠代理因子做归因会过度解读残差。
+
+---
+
+### 八、复权（总收益）扩展因子表 —— 阶段二 VaR 正式输入（9/14 导师反馈落地）
+
+按导师反馈①，直接用**除权 NAV** 日收益会把「分红除息跳空」计成市场波动，系统性高估 σ → 抬高 VaR 基准。经查 9141.HK 为
+**派息型**（官方公告：每季度派息，HKD 0.11→0.13/单位，两柜台同额、以 HKD 派发），样本窗 2021-08~2026-09 内 **20 次除息**
+（ex-date 均在 1/4/7/10 月上旬）。`code/build_tr_factors.py` 在除权表上把每期除息跳空加回：
+
+| 列 | 定义 |
+|---|---|
+| `etf_ret_tr_pct` | 复权 USD 总收益（%）：`log[(nav_{t-1}·e^{r_t} + D_t)/nav_{t-1}]`，D_t>0 仅除息日（主口径，VaR 上报） |
+| `etf_ret_rmb_pct` | 人民币总收益（%）：`etf_ret_tr_pct + fx_ret_pct`（对数相加，≈USD 资产折 CNY，次口径） |
+| `etf_rate_attrib_tr_pct` / `etf_spread_proxy_tr_pct` | 利差剥离在复权收益上重做（同日 lag=0） |
+| `is_exdate` / `div_yield_pct` | 除息日标记 / 当日加回股息率（%） |
+
+复权效果（9/14 实测，三口径对照 `results/baseline_var_tr.csv`）：
+
+| 口径 | n | σ_ann | 1日99%VaR(μ=0) | 备注 |
+|---|---|---|---|---|
+| 除权 USD（参考/审计底） | 1273 | 4.52% | 0.663% | 含除息跳空噪声 |
+| **复权 USD（主口径）** | 1273 | **4.22%** | **0.619%** | 除息日 20/20 命中核对通过 |
+| 人民币总收益（次口径） | 1268 | 5.11% | 0.749% | CNY 尾 5 日 FRED 未发布 → NaN 记档（不伪造） |
+
+- **结论**：除权口径把分红除息当波动，σ_ann 高估约 6%；复权后利率剥离 R² 由 0.668 → **0.757**（除息跳空噪声此前拖累回归），
+  等效久期 ≈3.70y 基本不变（β5 −0.0077 / β10 −0.0293）。人民币次口径把汇率纳入同一收益框架，供第 3 周全维度压力测试。
+- 复现：`./.venv/bin/python code/build_tr_factors.py` → 输出 `factor_table_nav_tr.csv` / `baseline_var_tr.csv` / `tr_return_series.png`；
+  分红明细 `raw_data/dividends_9141HK.csv`。VaR 计量口径详见 [VaR 计量口径与回测协议](phase2_spec.md)。

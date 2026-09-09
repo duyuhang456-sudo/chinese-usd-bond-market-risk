@@ -8,15 +8,16 @@
 | # | 数据类别 | 内容 | 来源 | 代码/标识 | 频率 | 本次取得范围 |
 |---|---|---|---|---|---|---|
 | 1 | 无风险利率 | 美债收益率曲线 1M–30Y | [treasury.gov](https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve&field_tdr_date_value=2026) | — | 日 | 2021-08 ~ 2026-09（1274 行） |
-| 2 | 标的行情 | ChinaAMC 亚洲美元投资级债 ETF（**正式标的**） | Yahoo Finance | **9141.HK** | 日 | 2021-08 ~ 2026-09（1250 行）✓ |
+| 2 | 标的行情 | ChinaAMC 亚洲美元投资级债 ETF（**正式标的**） | Yahoo Finance | **9141.HK** | 日 | 2021-08 ~ 2026-09（1250 行）|
 | 3 | 汇率 | CNY/USD 日度中间价 | [FRED](https://fred.stlouisfed.org/series/DEXCHUS) | DEXCHUS | 日 | 2021-08 ~ 2026-08（1270 行） |
-| 4 | 信用利差 | 新兴市场投资级公司债 OAS | [FRED](https://fred.stlouisfed.org/series/BAMLEMIBHGCRPIOAS) | BAMLEMIBHGCRPIOAS | 日 | 2023-09 ~ 2026-09（787 行）⚠️ |
+| 4 | 信用利差 | 新兴市场投资级公司债 OAS | [FRED](https://fred.stlouisfed.org/series/BAMLEMIBHGCRPIOAS) | BAMLEMIBHGCRPIOAS | 日 | 2023-09 ~ 2026-09（787 行）|
 | 5 | 宏观基准 | 联邦基金有效利率 | [FRED](https://fred.stlouisfed.org/series/FEDFUNDS) | FEDFUNDS | 月 | 2021-08 ~ 2026-08（61 行） |
 | 6 | 宏观基准 | 美国 CPI 指数 | [FRED](https://fred.stlouisfed.org/series/CPIAUCSL) | CPIAUCSL | 月 | 2021-08 ~ 2026-07（59 行） |
 | 7 | 事件参考 | 金融风险事件时间线 | IMF/美联储/财经媒体 | — | — | 已建：`events/risk_events_timeline.csv`（83 行，2021-08~2026-09，用于异常值校验与压力情景） |
-| 8 | 标的官方估值 | 9141.HK 每单位资产净值（NAV, USD/单位） | MoneyDJ（镜像华夏基金(香港)官方净値） | — | 日 | 已建：`raw_data/nav_9141HK_MoneyDJ.csv` → `clean_data/nav_9141HK_clean.csv`（2021-08~2026-09，官方锚点已验证，阶段二 VaR 正式输入） |
+| 8 | 标的官方估值 | 9141.HK 每单位资产净值（NAV, USD/单位） | MoneyDJ（镜像华夏基金(香港)官方净値） | — | 日 | 已建：`raw_data/nav_9141HK_MoneyDJ.csv` → `clean_data/nav_9141HK_clean.csv`（2021-08~2026-09，官方锚点已验证，阶段二 VaR 除权底表） |
+| 9 | 基金派息记录 | 9141.HK 各期派息（除息日 / 每单位派息，HKD→USD） | 华夏基金(香港)派息公告（etnet / stockanalysis / Yahoo 交叉核） | — | 季（2021-01~2026-09，23 期） | 已建：`raw_data/dividends_9141HK.csv`（复权总收益用，`build_tr_factors.py`；样本窗 2021-08 起命中 20/20，逐条核对通过） |
 
-### ⚠️ 数据可得性说明
+### 数据可得性说明
 1. **FRED 利差系列（BAMLEMIBHGCRPIOAS）自 2023-09 才有数据**（约 3 年，非 5 年）。需求文档中该代码为扫描件 OCR，经核对以本表代码为准；历史偏短属源数据限制，信用利差因子及其外部校验需接受该窗口。
 2. **CPI 最新值有发布滞后**（本次到 2026-07），属正常。
 3. **需求文档 3.2 的“iShares 中国投资级美元债 ETF（MCHB）”在真实市场不存在**。经 Yahoo 官方接口核实，`MCHB` 实为 **Mechanics Bancorp（美国银行股，EQUITY/Nasdaq）**，Yahoo 搜索亦无任何 iShares 中国美元债基金对应此代码。该数据已弃用（`raw_data/mchb_MechanicsBancorp_WRONG_弃用.csv`）。**2026-09-07 已确定改用 9141.HK 为正式标的（见三）。**

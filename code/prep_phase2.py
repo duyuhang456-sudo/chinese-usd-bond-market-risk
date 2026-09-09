@@ -1,10 +1,13 @@
 """
 阶段二 Day1 建模准备：基线 VaR / 因子暴露 / 协方差校验 / 平稳-高波动分段 / 存疑日清单
 
-输入：factors/factor_table_nav.csv（正式 NAV 口径因子表）、events/risk_events_timeline.csv、
+输入：factors/factor_table_nav_tr.csv（正式输入：复权 USD 总收益主口径，导师反馈后定稿；
+      除权 NAV 表 factor_table_nav.csv 仅留作对照/审计底表）、events/risk_events_timeline.csv、
       clean_data/outlier_judgment.csv
+口径：主口径 = USD 本位复权收益（etf_ret_tr_pct，δ_fx=0，VaR 上报口径）；人民币次口径见
+      results/baseline_var_tr.csv 对照表（build_tr_factors.py 产出），9/15+ 压力测试阶段并入。
 产出（results/）：
-  baseline_var.csv      无条件正态 VaR 基线（NAV σ_ann / 1日σ / VaR95 / VaR99）
+  baseline_var.csv      无条件正态 VaR 基线（复权 USD 主口径 σ_ann / 1日σ / VaR95 / VaR99）
   factor_exposure.csv   因子暴露 δ 与协方差校验（δ'Σδ → 组合σ，与经验σ对照）
   regimes.csv           逐日滚动 60 交易日年化实现波动 + 平稳/高波动标注（供 9/17 分段回测）
   doubtful_days.csv     阶段一 16 条「存疑」异常日清单（供 9/17 稳健性复核）
@@ -41,9 +44,9 @@ Z = {"95%": 1.6449, "99%": 2.3263}
 
 
 def main() -> None:
-    F = pd.read_csv(FACT / "factor_table_nav.csv", parse_dates=["date"]).set_index("date")
-    r = F["etf_ret_pct"].dropna()            # NAV 组合日收益（VaR 标的序列）
-    print(f"[输入] factor_table_nav rows={len(F)}  NAV收益 n={len(r)}")
+    F = pd.read_csv(FACT / "factor_table_nav_tr.csv", parse_dates=["date"]).set_index("date")
+    r = F["etf_ret_tr_pct"].dropna()          # 主口径：复权 USD 总收益（正式 VaR 标的序列）
+    print(f"[输入] factor_table_nav_tr rows={len(F)}  复权 USD 收益 n={len(r)}")
 
     # ============ 1) 基线：无条件正态 VaR（1 日，USD 本位）============
     mu, sd = float(r.mean()), float(r.std())
@@ -61,19 +64,19 @@ def main() -> None:
     print(bl.to_string(index=False))
 
     # ============ 2) 因子暴露 δ 与协方差校验 ============
-    # 组合收益 ≡ β5·Δ5Y + β10·Δ10Y + 1·利差代理（同日 NAV 口径，阶段一定案）
-    y = F["etf_ret_pct"]
+    # 主口径：复权收益 ≡ β5·Δ5Y + β10·Δ10Y + 1·利差代理（同日 TR 剥离，见 build_tr_factors.py）
+    y = F["etf_ret_tr_pct"]
     X = sm.add_constant(pd.DataFrame({
         "d5y_bp": F["d5y_bp"], "d10y_bp": F["d10y_bp"]}))
     dfa = pd.concat([y, X], axis=1).dropna()
-    m = sm.OLS(dfa["etf_ret_pct"], dfa[["const", "d5y_bp", "d10y_bp"]]).fit()
+    m = sm.OLS(dfa["etf_ret_tr_pct"], dfa[["const", "d5y_bp", "d10y_bp"]]).fit()
     b5, b10 = float(m.params["d5y_bp"]), float(m.params["d10y_bp"])
     dur = -(b5 + b10) * 100
 
     fac = pd.DataFrame({
         "Δ5Y_bp": F["d5y_bp"],
         "Δ10Y_bp": F["d10y_bp"],
-        "利差代理_%": F["etf_spread_proxy_pct"],
+        "利差代理_%": F["etf_spread_proxy_tr_pct"],
     }).dropna()
     Sigma = fac.cov()                                   # 因子协方差矩阵
     dvec = pd.Series({"Δ5Y_bp": b5, "Δ10Y_bp": b10, "利差代理_%": 1.0})   # δ
@@ -81,7 +84,8 @@ def main() -> None:
     expo = pd.DataFrame({
         "因子": ["利率 Δ5Y", "利率 Δ10Y", "信用利差代理", "汇率 CNY/USD"],
         "暴露δ": [b5, b10, 1.0, 0.0],
-        "含义": ["% 收益 / bp", "% 收益 / bp", "% 收益 / % 残差", "USD 本位→0（CNY 折算回报才用）"],
+        "含义": ["% 收益 / bp", "% 收益 / bp", "% 收益 / % 残差",
+                 "主口径 USD 本位→0；人民币次口径=+1（见 baseline_var_tr）"],
     })
     expo.to_csv(RES / "factor_exposure.csv", index=False, encoding="utf-8-sig")
     corr = fac.corr().round(3)
@@ -106,7 +110,7 @@ def main() -> None:
     # 3b) 急性危机窗：事件时间线 ±2 交易日，若窗内 |NAV 日收益| 达 ~4σ（1.2%）则整窗记危机。
     #     客观、可复现（由实现收益触发，不靠人工挑日子）；捕捉 2025-04 关税等短促冲击。
     ev = pd.read_csv(EV / "risk_events_timeline.csv", parse_dates=["date"])
-    CRISIS_BAR = 1.2                       # %（≈4.2 × 日σ 0.285）
+    CRISIS_BAR = 1.2                       # %（≈4.5 × 主口径日σ 0.266，复权后略升）
     crisis = pd.Series(False, index=r.index)
     ev_hit: list[str] = []
     rv_abs = r.abs()
