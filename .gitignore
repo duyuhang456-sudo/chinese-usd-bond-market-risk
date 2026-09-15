@@ -15,3 +15,6 @@ raw_data/mchb_MechanicsBancorp_WRONG_弃用.csv
 # IDE
 .idea/
 .vscode/
+
+# 内部复盘版（仅本地留存，不入库；对外交付只用 week*_report_formal.md）
+docs/week*_intern_review.md
