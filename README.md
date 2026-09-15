@@ -60,7 +60,7 @@ docs/        数据说明文档与研究文档
 
 ## 结果目录（`results/`，阶段二）
 
-阶段二共 13 个结果文件，按用途分三类：
+阶段二共 17 个结果文件，按用途分四类：
 
 | 文件 | 内容 | 产出日 |
 |---|---|---|
@@ -74,13 +74,29 @@ docs/        数据说明文档与研究文档
 | `var_historical.csv` | 历史模拟 VaR 序列（1023 行，HS250/500/750 + FHS-E/FHS-G） | 9/16 |
 | `backtest_results.csv` | **回测检验主表**（262 行 × 33 列：失败率 + Kupiec + Christoffersen + ES） | 9/17 |
 | `backtest_exceptions.csv` | 违规判定表（832 行，含存疑日 / 事件邻近 / 3141 同向性标注） | 9/17 |
+| `model_scorecard.csv` | 逐模型 × 口径 × 置信度评分卡（门槛一/二判定 + 校准偏差 + 资本占用 + 覆盖落差） | 9/18 |
+| `baseline_decision.csv` | **基准口径定案表**（主/次口径 × 95%/99% 基准、备选、淘汰及理由） | 9/18 |
+| `delta_transmission_events.csv` | δ 线性传导逐事件窗偏差（1500 行：85 事件 × 窗口 × δ 来源 × 口径） | 9/18 |
+| `delta_transmission_summary.csv` | δ 传导偏差汇总（24 行：按窗口 / 口径 / δ 来源 / M2-vs-M3 聚合） | 9/18 |
 
 口径与检验方法见 [VaR 计量口径与回测协议](docs/phase2_spec.md)；
-结果解读与模型适用性结论见 [模型验证分析报告](docs/phase2_model_validation.md)。
+结果解读、模型适用性结论、**基准口径定案**与 **δ 传导精度验证**见 [模型验证分析报告](docs/phase2_model_validation.md) §7.2 / §7.3。
 
-**一键复现**（须按序，`var_historical.py` 依赖 `var_parametric.csv` 的 σ 列）：
+## 图表目录（`figures/`，阶段二）
+
+| 文件 | 内容 | 产出日 |
+|---|---|---|
+| `var_series_compare.png`、`var_garch_sigma.png`、`var_hs_vs_parametric.png` | 参数法 VaR 序列 / GARCH σ 轨迹 / 参数法与历史模拟对比 | 9/15 |
+| `var_hs_quantile_path.png`、`var_fhs_compare.png` | 历史分位数路径 / Filtered-HS 对比 | 9/16 |
+| `backtest_exceptions.png`、`backtest_coverage.png` | 违规时间线 + 事件标注 / 失败率点估计 + Kupiec 接受区间 | 9/17 |
+| `baseline_model_tradeoff.png` | 95% / 99% 分面：失败率（纵）对资本占用指数（横），含名义线与审慎带 | 9/18 |
+| `delta_transmission.png` | 预测 vs 实际 / 偏差随冲击幅度的变化 / 偏差分布（主口径 · 3 日窗 · 事件前 δ） | 9/18 |
+
+**一键复现**（须按序，`var_historical.py` 依赖 `var_parametric.csv` 的 σ 列；
+后两个脚本只消费 CSV、不重算 VaR，可独立重跑）：
 
 ```bash
 python code/build_factors_nav.py && python code/build_tr_factors.py && python code/prep_phase2.py
 python code/var_parametric.py && python code/var_historical.py && python code/var_backtest.py
+python code/recommend_baseline.py && python code/verify_delta_transmission.py
 ```
