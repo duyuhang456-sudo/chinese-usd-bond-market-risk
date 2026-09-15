@@ -396,5 +396,3 @@ build_factors_nav.py → build_tr_factors.py → prep_phase2.py
 随机数固定（`lr_ind_null` 与 `p_ind_mc_cond` 均用固定种子），CSV 一律 `utf-8-sig`。
 `var_backtest.py` 内置**硬断言**：把 9/16 已登记的每一个违规计数写死为期望值，不符即中断——
 这是防止跨日口径分叉的主要防线。
-
-> 协议与全部口径决策见 [VaR 计量口径与回测协议](phase2_spec.md)；数据来源见 [数据来源说明](data_sources.md)。

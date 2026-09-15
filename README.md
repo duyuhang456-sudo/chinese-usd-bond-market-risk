@@ -36,6 +36,7 @@
 - **[《数据说明文档》（第一阶段正式交付，9/11 收口）](docs/phase1_data_description.md)**
 - **[第 1 周周报（周会要点 / 遗留问题 / 阶段二衔接）](docs/week1_report.md)**
 - **[第 2 周周报（阶段二要点 / 推荐口径 / 阶段三参数交接清单）](docs/week2_report.md)**
+- **[第 2 周实习周报（正式版，含图表与代码片段）](docs/week2_report_formal.md)**
 - [数据源清单与下载说明](docs/data_sources.md)
 - [数据清洗说明（对齐 + 缺失值，含完整率报告解读）](docs/data_cleaning.md)
 - [异常值识别与事件校验说明（异常判定表解读）](docs/outlier_check.md)
