@@ -105,7 +105,7 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import REPO, write_table
 from var_common import C_M1, C_GARCH, C_ALT, C_GREY, INK2
 
 FACT = REPO / "factors"
@@ -288,7 +288,11 @@ def main() -> None:
                 x_hd_es99=round(net / hd[99]["es"], 3),
                 tail_flag_hd="是" if net > hd[99]["es"] else "否",
                 tail_flag="是" if net > v99["es"] else "否",
-                fx_horizon_note="纯汇率情景，主口径按口径恒为 0" if (has_fx and cal == "主") else "",
+                # 「纯」汇率情景 = 汇率是**唯一**驱动。历史情景窗内也含汇率项，
+                # 若只用 has_fx 判定，H1/H2/H3/X1/X2 的主口径行会被误贴该注释。
+                fx_horizon_note=("纯汇率情景，主口径按口径恒为 0"
+                                 if (has_fx and not has_rate and not has_cr and cal == "主")
+                                 else ""),
             ))
 
             # 因子贡献度：模型隐含部分按因子拆，实际与模型的差单列残差
@@ -357,8 +361,8 @@ def main() -> None:
     assert not _missing, (f"情景库有 {S.scenario_id.nunique()} 个情景，"
                           f"以下未进入测算：{sorted(_missing)}")
     print(f"\n  [对账] 情景库 {S.scenario_id.nunique()} 个情景全部进入测算（无静默漏算）")
-    I.to_csv(RES / "stress_impact.csv", index=False, encoding="utf-8-sig")
-    C.to_csv(RES / "stress_factor_contrib.csv", index=False, encoding="utf-8-sig")
+    write_table(I, RES / "stress_impact.csv")
+    write_table(C, RES / "stress_factor_contrib.csv")
     print(f"\n[1] 测算表 → results/stress_impact.csv  {I.shape[0]} 行 × {I.shape[1]} 列")
     print(f"[2] 因子贡献度 → results/stress_factor_contrib.csv  {C.shape[0]} 行 × {C.shape[1]} 列")
 

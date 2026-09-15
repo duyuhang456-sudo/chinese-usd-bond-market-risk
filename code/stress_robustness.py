@@ -63,7 +63,7 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import REPO, write_table
 from var_common import C_M1, C_GARCH, C_ALT, C_GREY, INK2
 
 FACT = REPO / "factors"
@@ -117,7 +117,7 @@ def main() -> None:
                                 if hist.index.get_loc(d) >= h - 1 else "",
                                 loss_pct=round(float(v), 4)))
     T = pd.DataFrame(top)
-    T.to_csv(RES / "stress_worst_windows.csv", index=False, encoding="utf-8-sig")
+    write_table(T, RES / "stress_worst_windows.csv")
     print(f"      → results/stress_worst_windows.csv  {T.shape[0]} 行 × {T.shape[1]} 列")
     for h in HORIZONS:
         for cal in ("主", "次"):
@@ -144,7 +144,7 @@ def main() -> None:
                                 exceeded_by_pct=round(worst - r.loss_realized_pct, 4),
                                 below_worst="是" if worst > r.loss_realized_pct else "否"))
     C = pd.DataFrame(cov)
-    C.to_csv(RES / "stress_coverage.csv", index=False, encoding="utf-8-sig")
+    write_table(C, RES / "stress_coverage.csv")
     print(f"\n[1] 覆盖度 → results/stress_coverage.csv  {C.shape[0]} 行 × {C.shape[1]} 列")
 
     # 覆盖率只在**损失情景**（loss_pct > 0）上判定：收益情景被「超越」是同义反复，无信息量
@@ -200,7 +200,7 @@ def main() -> None:
                                   d10y_bp=round(float(W["d10y_bp"].sum()), 4),
                                   loss_pct=round(float(-W[col].sum()), 4)))
     Ws = pd.DataFrame(wrows)
-    Ws.to_csv(RES / "stress_window_sens.csv", index=False, encoding="utf-8-sig")
+    write_table(Ws, RES / "stress_window_sens.csv")
     print(f"[2] 窗口敏感性 → results/stress_window_sens.csv  {Ws.shape[0]} 行 × {Ws.shape[1]} 列\n")
     for sid in HIST_WINDOWS:
         for cal in ("主", "次"):
@@ -241,8 +241,7 @@ def main() -> None:
                   f"（平移 {best_sh:+d} 日）  实测最差 {worst_hist:+.4f}%  "
                   f"残余缺口 {worst_hist - best_v:+.4f}pp  → "
                   f"{'覆盖' if best_v >= worst_hist - 1e-9 else '**仍有缺口**'}")
-    pd.DataFrame(sh_rows).to_csv(RES / "stress_shift_coverage.csv", index=False,
-                                 encoding="utf-8-sig")
+    write_table(pd.DataFrame(sh_rows), RES / "stress_shift_coverage.csv")
     print("      → results/stress_shift_coverage.csv")
 
     # ============================================================ 三、缓冲敏感性
@@ -250,17 +249,21 @@ def main() -> None:
     print("三、缓冲敏感性：5 档缓冲下的尾部判定")
     print("=" * 78)
     brows = []
+    # 纯汇率情景（S07–S09）走口径搬运的恒等式，无 δ 估计误差，报告基线给 0 缓冲。
+    # 若在本网格里也给它加缓冲，标着「本报告取值」的那一档就复现不出报告本身。
+    PURE_FX = {"离岸汇率贬值"}
     for lab, buf in BUFFER_GRID:
         for _, r in I.iterrows():
             # 缓冲只对假设情景生效；历史情景取实际路径，任何档位下都不加
-            net = r.loss_realized_pct + (buf if r.scenario_class == "假设" else 0.0)
+            applies = r.scenario_class == "假设" and r.direction not in PURE_FX
+            net = r.loss_realized_pct + (buf if applies else 0.0)
             brows.append(dict(buffer_label=lab, buffer_value=buf,
                               scenario_id=r.scenario_id, scenario_name=r.scenario_name,
                               caliber=r.caliber, horizon_days=r.horizon_days,
                               loss_net_pct=round(net, 4),
                               tail_flag="是" if (net > r.es_hd_99_pct and net > 0) else "否"))
     Bs = pd.DataFrame(brows)
-    Bs.to_csv(RES / "stress_buffer_sens.csv", index=False, encoding="utf-8-sig")
+    write_table(Bs, RES / "stress_buffer_sens.csv")
     print(f"[3] 缓冲敏感性 → results/stress_buffer_sens.csv  {Bs.shape[0]} 行 × {Bs.shape[1]} 列\n")
     for lab, _ in BUFFER_GRID:
         g = Bs[Bs.buffer_label == lab]
@@ -361,7 +364,7 @@ def main() -> None:
         sp = max(r["extreme_2x_loss_pct"] for r in g) - min(r["extreme_2x_loss_pct"] for r in g)
         print(f"    → 极端档损失在三种窗长下的极差 {sp:.4f}pp")
     AR = pd.DataFrame(ar_rows)
-    AR.to_csv(RES / "stress_anchor_sens.csv", index=False, encoding="utf-8-sig")
+    write_table(AR, RES / "stress_anchor_sens.csv")
     print(f"\n[5] 锚点敏感性 → results/stress_anchor_sens.csv  {AR.shape[0]} 行 × {AR.shape[1]} 列")
 
     # 同向 vs 绝对最大：利率样本内最大的 3 日变动是**下行**，须写明口径

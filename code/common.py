@@ -35,3 +35,17 @@ def save_csv(df: pd.DataFrame, name: str, date_col: str = "date") -> Path:
     df.to_csv(p, index=False)
     print(f"[saved] {p.name}  rows={len(df)}")
     return p
+
+
+def write_table(df: pd.DataFrame, path: Path) -> None:
+    """写出结果表：utf-8-sig（带 BOM）、不带索引，并把 IEEE 负零规整为 0.0。
+
+    负零来自 round(-0.0, 4)（如纯汇率情景主口径那个恒为零的分量、以及与之对称的
+    零贡献项）。它在数值上等于 0，但会打印成 "-0.0000"，与文档中「恒为 0」的表述
+    冲突，读表时像是笔误。此处只在写盘时规整符号，不改动任何数值。
+    """
+    out = df.copy()
+    for c in out.columns:
+        if pd.api.types.is_float_dtype(out[c]):
+            out[c] = out[c] + 0.0  # -0.0 + 0.0 = 0.0；NaN 不受影响
+    out.to_csv(path, index=False, encoding="utf-8-sig")
