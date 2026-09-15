@@ -38,6 +38,8 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
 plt.rcParams["axes.unicode_minus"] = False
 
 from common import REPO
+from var_common import (WIN, Z, LAM, C_M1, C_GARCH, C_ALT, C_GREY, INK2,
+                        sigma_uncond, sigma_ewma, var_cols)
 
 FACT = REPO / "factors"
 RES = REPO / "results"
@@ -45,40 +47,12 @@ FIG = REPO / "figures"
 RES.mkdir(parents=True, exist_ok=True)
 FIG.mkdir(parents=True, exist_ok=True)
 
-WIN = 250                       # 估计窗（交易日），与回测协议一致
-Z = {"95": 1.6449, "99": 2.3263}
-LAM = 0.94                      # EWMA 衰减因子（RiskMetrics）
 SCALE = 10.0                    # GARCH 输入缩放（% → 约 1 量级，改善优化器收敛，输出再除回）
-
-# 分类色：参考调色板已文档化通过 all-pairs 校验的前三槽（固定顺序，不轮转）
-C_M1, C_GARCH, C_DNORM = "#2a78d6", "#eb6834", "#1baf7a"
-C_GREY = "#9a9a96"              # 收益序列：中性语境，不作分类色
-INK2 = "#52514e"
+C_EWMA = C_ALT                  # 本脚本第三序列槽位 = EWMA（见 var_common 的槽位约定）
 
 
 # ---------------------------------------------------------------- 估计器
-def sigma_uncond(r: pd.Series, win: int = WIN) -> pd.Series:
-    """M1：滚动 win 日无条件 σ。
-
-    注意 pandas rolling 在位置 t 含当日 → 必须再 shift(1)，使 σ_t 只用 [t−win, t−1]，
-    与 GARCH/δ-normal/EWMA 一致；否则预测日 t 的收益会进入自己的 σ（前视偏差）。
-    """
-    return r.rolling(win).std().shift(1)
-
-
-def sigma_ewma(r: pd.Series, lam: float = LAM, seed_win: int = WIN) -> pd.Series:
-    """M1e：EWMA 条件 σ，σ²_t = λσ²_{t−1} + (1−λ)r²_{t−1}，以首个窗的样本方差为种子。"""
-    v = np.full(len(r), np.nan)
-    prev = float(r.iloc[:seed_win].var())
-    v[seed_win - 1] = prev
-    for i in range(seed_win, len(r)):
-        x = r.iloc[i - 1]
-        if np.isfinite(x):
-            prev = lam * prev + (1.0 - lam) * x * x
-        v[i] = prev
-    return pd.Series(np.sqrt(v), index=r.index)
-
-
+# sigma_uncond（M1）/ sigma_ewma（M1e）/ 违规判定已抽到 var_common.py，供 9/16、9/17 共用。
 def sigma_garch(r: pd.Series, dist: str = "normal") -> tuple[pd.Series, dict, pd.DataFrame]:
     """M1g：扩展窗逐日重估 GARCH(1,1)，σ_t = 一步向前条件波动（信息 ≤ t−1）。
 
@@ -121,10 +95,6 @@ def sigma_dnorm(fac: pd.DataFrame, delta: pd.Series, win: int = WIN) -> pd.Serie
             continue
         sig.iloc[t] = float(np.sqrt(d @ np.cov(W, rowvar=False) @ d))
     return sig
-
-
-def var_cols(sig: pd.Series, tag: str) -> dict[str, pd.Series]:
-    return {f"{tag}_var_{c}": Z[c] * sig for c in Z}
 
 
 def var_attribution(fac: pd.DataFrame, delta: pd.Series, win: int = WIN) -> pd.Series:
@@ -296,13 +266,13 @@ def main() -> None:
     for ax, lbl, cols in [(axes[0], "主口径（复权 USD）",
                            [("sig_uncond", "无条件（滚动 250 日）", C_M1),
                             ("sig_garch", "GARCH(1,1)", C_GARCH),
-                            ("sig_ewma", "EWMA(0.94)", C_DNORM)]),
+                            ("sig_ewma", "EWMA(0.94)", C_EWMA)]),
                           # 两面板都只画「相互独立」的三个估计量：δ-normal ≡ M1 会精确压在同一条线上，
                           # 画出来等于藏一条线；该等价性改由 [4] 段文字与 results/var_attribution.csv 披露
                           (axes[1], "人民币次口径",
                            [("rmb_sig_uncond", "无条件（滚动 250 日）", C_M1),
                             ("rmb_sig_garch", "GARCH(1,1)", C_GARCH),
-                            ("rmb_sig_ewma", "EWMA(0.94)", C_DNORM)])]:
+                            ("rmb_sig_ewma", "EWMA(0.94)", C_EWMA)])]:
         labs = []
         for col, name, c in cols:
             s = oos[col]
@@ -342,7 +312,7 @@ def main() -> None:
             ax.plot(oos.index, oos[rcol], lw=.75, color=C_GREY, label="日收益")
             ax.plot(oos.index, -oos[f"{t1}_var_{c}"], lw=1.2, color=C_M1, label="M1 无条件")
             ax.plot(oos.index, -oos[f"{t2}_var_{c}"], lw=1.2, color=C_GARCH, label="M1g GARCH")
-            ax.plot(oos.index, -oos[f"{t3}_var_{c}"], lw=1.2, color=C_DNORM, label="M1e EWMA")
+            ax.plot(oos.index, -oos[f"{t3}_var_{c}"], lw=1.2, color=C_EWMA, label="M1e EWMA")
             ax.set_title(f"{lbl} · {c}% VaR（负值 = 损失阈值）", fontsize=9.5, loc="left")
             ax.grid(alpha=.25, lw=.6)
             ax.margins(x=0.01)

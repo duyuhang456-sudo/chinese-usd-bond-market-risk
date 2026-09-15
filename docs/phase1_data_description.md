@@ -28,9 +28,9 @@
 |---|---|
 | `raw_data/` | 8 类来源原始 CSV（下载脚本 `code/download_*.py`） |
 | `clean_data/` | 对齐后各表（`*_clean.csv`，均带 `fill_flag`）、`master_calendar.csv`、`completeness_report.csv`、`fill_log.csv`、`outlier_candidates.csv`、`outlier_judgment.csv` |
-| `factors/` | `factor_table_nav.csv`（**正式**）、`factor_table.csv`（市价对照）、`factor_table_3141HK.csv`（否决对照）、各对照/统计表 |
+| `factors/` | `factor_table_nav.csv`（除权 NAV，阶段一正式）、`factor_table_nav_tr.csv`（**复权 + 人民币双口径，阶段二 VaR 正式输入**）、`factor_table.csv`（市价对照）、`factor_table_3141HK.csv`（否决对照）、各对照/统计表 |
 | `events/` | 风险事件参考时间线 `risk_events_timeline.csv`（83 行，供异常校验与阶段三压力情景复用） |
-| `code/` | `download_*` / `clean_data.py` / `outlier_detect.py` / `adjudicate_outliers.py` / `build_factors_nav.py`(正式) / `descriptive_stats.py` |
+| `code/` | `download_*` / `clean_data.py` / `outlier_detect.py` / `adjudicate_outliers.py` / `build_factors_nav.py`(正式) / `build_tr_factors.py` / `descriptive_stats.py`（阶段一）；`prep_phase2.py` / `var_common.py` / `var_parametric.py` / `var_historical.py`（阶段二） |
 | `docs/` | 本文件 + 细粒度说明文档（附录） |
 
 ---
