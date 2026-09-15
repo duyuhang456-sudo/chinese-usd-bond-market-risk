@@ -316,7 +316,10 @@ def main() -> None:
               f"  回撤={d_main:+7.4f}%  缓冲={buf:.4f}pp")
 
     # ---- 历史与补充情景：实际路径
-    for sid in ["H1", "H2", "H3", "X1"]:
+    # 情景清单从 CSV 读，不在此硬编码——否则情景库扩容（如 9/24 补入 X2）会被静默漏算。
+    HIST_IDS = (S[(S.measure == "cum_window") & (S.scenario_class.isin(["历史", "补充"]))]
+                .scenario_id.drop_duplicates().tolist())
+    for sid in HIST_IDS:
         g = S[(S.scenario_id == sid) & (S.measure == "cum_window")]
         a, b = g.window_start.iloc[0], g.window_end.iloc[0]
         W = F.loc[a:b]
@@ -347,6 +350,13 @@ def main() -> None:
 
     I = pd.DataFrame(rows)
     C = pd.DataFrame(crows)
+    # 完整性断言：情景库里的每个情景都必须被测算到，缺一个即终止。
+    # 该断言的存在理由：情景清单曾在第 4 节里被硬编码，导致 9/24 补入的 X2 静默漏算，
+    # 覆盖度检验才发现。让「漏算」无法再静默通过。
+    _missing = set(S.scenario_id.unique()) - set(I.scenario_id.unique())
+    assert not _missing, (f"情景库有 {S.scenario_id.nunique()} 个情景，"
+                          f"以下未进入测算：{sorted(_missing)}")
+    print(f"\n  [对账] 情景库 {S.scenario_id.nunique()} 个情景全部进入测算（无静默漏算）")
     I.to_csv(RES / "stress_impact.csv", index=False, encoding="utf-8-sig")
     C.to_csv(RES / "stress_factor_contrib.csv", index=False, encoding="utf-8-sig")
     print(f"\n[1] 测算表 → results/stress_impact.csv  {I.shape[0]} 行 × {I.shape[1]} 列")
@@ -371,7 +381,9 @@ def main() -> None:
         ["scenario_id", "scenario_name", "caliber", "horizon_days",
          "loss_after_buffer_pct", "es_hd_99_pct", "x_hd_es99", "mdd_pct"]]
     print(T.to_string(index=False) if len(T) else "  （无）")
-    print(f"\n  超出同期限 99% ES 的情景 {len(T)} / 28 条（口径×情景）")
+    # 分母从测算表取，不写死——情景库扩容后写死的分母会静默变成错的
+    print(f"\n  超出同期限 99% ES 的情景 {len(T)} / {len(I)} 条（口径×情景，"
+          f"{I.scenario_id.nunique()} 个情景）")
     print(f"  对照：若改用 1 日 99% ES 作阈值，超出 {int(((I.tail_flag == '是') & (I.loss_after_buffer_pct > 0)).sum())} 条 ——"
           f" 期限不匹配会把几乎所有情景判为超限，判定失去区分度，故不作结论")
     n_neg = int((I.loss_realized_pct < 0).sum())

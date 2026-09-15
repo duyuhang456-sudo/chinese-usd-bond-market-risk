@@ -87,16 +87,28 @@ docs/        数据说明文档与研究文档
 
 ## 结果目录（`results/`，阶段三）
 
-阶段三共 3 个结果文件：
+阶段三共 8 个结果文件，前三个为测算主表，后五个为稳健性分析：
 
 | 文件 | 内容 | 产出日 |
 |---|---|---|
-| `stress_scenarios.csv` | **压力情景库**（73 行 × 15 列：14 情景 × 因子 × 三种幅度测度；含数据可得性标记） | 9/21 |
-| `stress_impact.csv` | **压力测试测算主表**（28 行 × 30 列：情景 × 双口径的损失 / 回撤 / 缓冲 / 同期限与 1 日对标 / 尾部标记） | 9/22–9/23 |
-| `stress_factor_contrib.csv` | 因子贡献度分解（140 行 × 10 列：Δ5Y / Δ10Y / ΔOAS / 汇率 / **未解释残差**单列） | 9/23 |
+| `stress_scenarios.csv` | **压力情景库**（87 行 × 15 列：15 情景 × 因子 × 三种幅度测度；含数据可得性标记） | 9/21，9/24 补 X2 |
+| `stress_impact.csv` | **压力测试测算主表**（30 行 × 30 列：情景 × 双口径的损失 / 回撤 / 缓冲 / 同期限与 1 日对标 / 尾部标记） | 9/22–9/23 |
+| `stress_factor_contrib.csv` | 因子贡献度分解（150 行 × 10 列：Δ5Y / Δ10Y / ΔOAS / 汇率 / **未解释残差**单列） | 9/23 |
+| `stress_coverage.csv` | 覆盖度检验：情景损失在历史分布中的分位数与是否被实测最差窗口超越 | 9/24 |
+| `stress_worst_windows.csv` | 样本内各期限（3/5/6 日）× 双口径的实测最差窗口榜（前 10） | 9/24 |
+| `stress_window_sens.csv` | 历史情景窗口起止平移 ±1 / ±2 日的损失与因子幅度 | 9/24 |
+| `stress_shift_coverage.csv` | 平移感知的**库级**覆盖度（历史情景取 ±2 日内最优对齐） | 9/24 |
+| `stress_buffer_sens.csv` | 五档缓冲（0 / 0.2927 / 0.6548 / 0.8390 / 1.0000 pp）下的尾部判定 | 9/24 |
+| `stress_anchor_sens.csv` | 锚点窗长改取 5 日 / 6 日时假设情景梯度的平移幅度 | 9/24 |
 
 情景构造依据与数据边界见 [压力情景库](docs/phase3_scenario_library.md)；
-三路径映射方法、缓冲量级来源、风险承受能力评估与**方法局限**见 [压力测试分析报告](docs/phase3_stress_testing.md)。
+三路径映射方法、缓冲量级来源、风险承受能力评估、**五项稳健性检验**与**方法局限**见
+[压力测试分析报告](docs/phase3_stress_testing.md)。
+
+9/24 的覆盖度检验查出第一版情景库漏掉了样本内 6 日期限上最差的一段冲击
+（2022-03-08 ~ 03-15，俄乌叠加加息周期开启），补入补充情景 X2 后该期限的覆盖缺口
+由 1.5261pp 收窄至 0.0621pp。发现过程与修补方式记录在
+[压力情景库](docs/phase3_scenario_library.md) §2.4，未作静默处理。
 
 ## 图表目录（`figures/`，阶段二）
 
@@ -116,18 +128,25 @@ docs/        数据说明文档与研究文档
 | `stress_mapping.png` | 三条传导路径：利率沿用 δ / 信用给 95% 区间 / 汇率口径搬移 | 9/22 |
 | `stress_loss_vs_var.png` | 情景损失 vs **同期限**历史 99% ES（菱形为各自窗口长度的经验分位） | 9/23 |
 | `stress_factor_contrib.png` | 因子贡献度分解（残差以纹理单列，不与因子混计） | 9/23 |
+| `stress_coverage.png` | 情景损失在历史 3 日损失分布中的位置（含 99% / 99.9% 分位与实测最差线） | 9/24 |
 
 **一键复现**（须按序，`var_historical.py` 依赖 `var_parametric.csv` 的 σ 列；
-后两个脚本只消费 CSV、不重算 VaR，可独立重跑）：
+后三个脚本只消费 CSV、不重算 VaR，可独立重跑）：
 
 ```bash
 python code/build_factors_nav.py && python code/build_tr_factors.py && python code/prep_phase2.py
 python code/var_parametric.py && python code/var_historical.py && python code/var_backtest.py
 python code/recommend_baseline.py && python code/verify_delta_transmission.py
-python code/stress_scenarios.py && python code/stress_impact.py
+python code/stress_scenarios.py && python code/stress_impact.py && python code/stress_robustness.py
 ```
 
-阶段三两步须按序（`stress_impact.py` 消费 `stress_scenarios.csv`）；
-两者只读因子表与阶段二结果 CSV，不重算 VaR，可独立重跑。
-`stress_scenarios.py` 另含对账断言：主/次口径收益差须逐值等于汇率项（log 收益可加性），
-差值非零即报错终止。
+阶段三三步须按序（`stress_impact.py` 消费 `stress_scenarios.csv`，
+`stress_robustness.py` 消费 `stress_impact.csv`）；
+三者只读因子表与阶段二结果 CSV，不重算 VaR，可独立重跑。
+
+脚本内置三处**硬断言**，任一不满足即报错终止：
+
+1. `stress_scenarios.py`——主/次口径收益差须逐值等于汇率项（log 收益可加性，`max|rmb − tr − fx| < 1e-9`）；
+2. `stress_impact.py`——HS250 @ common773 的四个基准配置须与阶段二报告 §7.2 登记值一致；
+3. `stress_impact.py`——**情景库中的每个情景都须进入测算**（此前情景清单被硬编码，
+   新增的 X2 曾因此静默漏算，直到覆盖度检验才暴露）。
