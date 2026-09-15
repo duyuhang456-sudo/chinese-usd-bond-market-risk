@@ -34,6 +34,8 @@
 - [第 3 周计划 · 第三阶段（Markdown）](下周计划_第三阶段_压力测试框架构建与测算分析.md)
 - **[VaR 计量口径与回测协议（阶段二 9/14 定稿，9/15–9/17 逐日回填）](docs/phase2_spec.md)**
 - **[模型验证分析报告（阶段二正式交付，9/18 收口）](docs/phase2_model_validation.md)**
+- **[压力情景库（第三阶段交付物 1：冲击参数与情景说明）](docs/phase3_scenario_library.md)**
+- **[压力测试分析报告（第三阶段交付物 2：损失 / 回撤 / 因子贡献度 / 尾部风险点）](docs/phase3_stress_testing.md)**
 - **[《数据说明文档》（第一阶段正式交付，9/11 收口）](docs/phase1_data_description.md)**
 - **[第 1 周周报（周会要点 / 遗留问题 / 阶段二衔接）](docs/week1_report.md)**
 - **[第 2 周周报（阶段二要点 / 推荐口径 / 阶段三参数交接清单）](docs/week2_report.md)**
@@ -83,6 +85,19 @@ docs/        数据说明文档与研究文档
 口径与检验方法见 [VaR 计量口径与回测协议](docs/phase2_spec.md)；
 结果解读、模型适用性结论、**基准口径定案**与 **δ 传导精度验证**见 [模型验证分析报告](docs/phase2_model_validation.md) §7.2 / §7.3。
 
+## 结果目录（`results/`，阶段三）
+
+阶段三共 3 个结果文件：
+
+| 文件 | 内容 | 产出日 |
+|---|---|---|
+| `stress_scenarios.csv` | **压力情景库**（73 行 × 15 列：14 情景 × 因子 × 三种幅度测度；含数据可得性标记） | 9/21 |
+| `stress_impact.csv` | **压力测试测算主表**（28 行 × 30 列：情景 × 双口径的损失 / 回撤 / 缓冲 / 同期限与 1 日对标 / 尾部标记） | 9/22–9/23 |
+| `stress_factor_contrib.csv` | 因子贡献度分解（140 行 × 10 列：Δ5Y / Δ10Y / ΔOAS / 汇率 / **未解释残差**单列） | 9/23 |
+
+情景构造依据与数据边界见 [压力情景库](docs/phase3_scenario_library.md)；
+三路径映射方法、缓冲量级来源、风险承受能力评估与**方法局限**见 [压力测试分析报告](docs/phase3_stress_testing.md)。
+
 ## 图表目录（`figures/`，阶段二）
 
 | 文件 | 内容 | 产出日 |
@@ -93,6 +108,15 @@ docs/        数据说明文档与研究文档
 | `baseline_model_tradeoff.png` | 95% / 99% 分面：失败率（纵）对资本占用指数（横），含名义线与审慎带 | 9/18 |
 | `delta_transmission.png` | 预测 vs 实际 / 偏差随冲击幅度的变化 / 偏差分布（主口径 · 3 日窗 · 事件前 δ） | 9/18 |
 
+## 图表目录（`figures/`，阶段三）
+
+| 文件 | 内容 | 产出日 |
+|---|---|---|
+| `stress_scenario_library.png` | 情景库三方向幅度（历史实际 vs 假设三梯度，含史上最差单日参照线） | 9/21 |
+| `stress_mapping.png` | 三条传导路径：利率沿用 δ / 信用给 95% 区间 / 汇率口径搬移 | 9/22 |
+| `stress_loss_vs_var.png` | 情景损失 vs **同期限**历史 99% ES（菱形为各自窗口长度的经验分位） | 9/23 |
+| `stress_factor_contrib.png` | 因子贡献度分解（残差以纹理单列，不与因子混计） | 9/23 |
+
 **一键复现**（须按序，`var_historical.py` 依赖 `var_parametric.csv` 的 σ 列；
 后两个脚本只消费 CSV、不重算 VaR，可独立重跑）：
 
@@ -100,4 +124,10 @@ docs/        数据说明文档与研究文档
 python code/build_factors_nav.py && python code/build_tr_factors.py && python code/prep_phase2.py
 python code/var_parametric.py && python code/var_historical.py && python code/var_backtest.py
 python code/recommend_baseline.py && python code/verify_delta_transmission.py
+python code/stress_scenarios.py && python code/stress_impact.py
 ```
+
+阶段三两步须按序（`stress_impact.py` 消费 `stress_scenarios.csv`）；
+两者只读因子表与阶段二结果 CSV，不重算 VaR，可独立重跑。
+`stress_scenarios.py` 另含对账断言：主/次口径收益差须逐值等于汇率项（log 收益可加性），
+差值非零即报错终止。
