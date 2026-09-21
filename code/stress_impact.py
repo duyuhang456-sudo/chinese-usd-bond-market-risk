@@ -370,6 +370,10 @@ def main() -> None:
             wd_dt = (str(pd.Series(realized).dropna().idxmin().date())
                      if hist else anchor_date)
             loss_model = -float(r_model.sum())
+            # 模型路径的**窗内最差单日**（1 日口径）。信用区间已改为 1 日量，与此列比对
+            # 才是同期限；拿窗末累计的 loss_model 去比 1 日区间，正是本报告反复警示的
+            # 「累计 vs 单日」口径错配。假设情景路径即 1 日，两列重合。
+            wd_model = -float(np.nanmin(r_model.values)) if hist else loss_model
             bench = wd if hist else loss
             bench_src = "窗内最差单日" if hist else "δ 映射"
             residual = loss - loss_model if hist else 0.0
@@ -377,8 +381,24 @@ def main() -> None:
             # 信用传导区间：下端取平静样本**弱传导**，上端取「平静样本**强传导**
             # + 2022 年残差极值」。上端**不再叠加缓冲**——2022 残差标定本身就是
             # 用实际偏差修正上限，再叠一次 0.3365pp 是重复计算。
-            cr_lower = -path_cum_mdd(r_rate + r_cr_hi + fx_term)[0]
-            cr_upper = -path_cum_mdd(r_rate + r_cr_lo + fx_term)[0] + CR_2022_RESID
+            # 期限与**基准损失列**一致（本轮修订）：历史/补充情景取**窗内最差单日**，
+            # 假设情景的 δ 映射路径本身即 HORIZON_DAYS=1 日，两者同为单日量。
+            # 此前一律取 `path_cum_mdd(...)[0]` 的窗末累计，使历史情景的信用区间成为
+            # 窗口级量、与 1 日基准不可比——拿 1 日实现损失去比窗口级信用区间正是本报告
+            # 在别处反复警示的口径错配（`docs/week3_report.md` §6.5 第 1 条挂账项）。
+            cr_lo_path = r_rate + r_cr_hi + fx_term
+            cr_hi_path = r_rate + r_cr_lo + fx_term
+            cr_lo_win = -path_cum_mdd(cr_lo_path)[0]      # 窗口级（旧口径，留作断言对照）
+            cr_hi_win = -path_cum_mdd(cr_hi_path)[0]
+            cr_lower = (-float(np.nanmin(cr_lo_path.values)) if hist else cr_lo_win)
+            cr_upper = (-float(np.nanmin(cr_hi_path.values))
+                        if hist else cr_hi_win) + CR_2022_RESID
+            # 分支确实生效的断言。历史情景窗长 > 1 日时，1 日量必须与窗口累计量不同；
+            # 若两者相等，说明上面又退回成窗口级计算（本挂账项的回归）。仅靠比对输出列
+            # 无法发现这种回归——旧窗口级值同样满足「下端 ≤ 点估计」，须在此处钉住。
+            if hist and has_cr and len(cr_lo_path) > 1:
+                assert abs(cr_lower - cr_lo_win) > 1e-12, (
+                    f"{sid} {cal} 信用区间下端与窗口累计量相同——历史情景疑似退回窗口级计算")
 
             v95, v99 = base[(cal, 95)], base[(cal, 99)]
             net = bench + buf
@@ -393,6 +413,7 @@ def main() -> None:
                 worst_day_loss_pct=round(wd, 4), worst_day_date=wd_dt,
                 loss_realized_pct=round(loss, 4),
                 loss_modeled_pct=round(loss_model, 4),
+                worst_day_modeled_pct=round(wd_model, 4),
                 residual_pct=round(residual, 4),
                 benchmark_loss_pct=round(bench, 4),
                 benchmark_source=bench_src,
@@ -519,6 +540,21 @@ def main() -> None:
     assert not _missing, (f"情景库有 {S.scenario_id.nunique()} 个情景，"
                           f"以下未进入测算：{sorted(_missing)}")
     print(f"\n  [对账] 情景库 {S.scenario_id.nunique()} 个情景全部进入测算（无静默漏算）")
+
+    # 信用区间口径一致性对账（本轮修订新增）。
+    # 本轮只应改动**历史与补充**情景的区间：假设情景的 δ 映射路径本来就是单日，
+    # 其区间在改动前后必须逐值不变。故下面的断言把「假设情景路径确为单日」钉死——
+    # `loss_modeled_pct` 与 `worst_day_modeled_pct` 重合即证明路径长度为 1，
+    # 从而其区间天然是 1 日量、本次改动对它是恒等变换。历史情景的分支是否真的生效，
+    # 由 add() 内的回归断言负责（输出列本身无法区分两种口径）。
+    _cr = I[I.credit_range_lo_pct.notna()]
+    _hy = _cr[_cr.scenario_class == "假设"]
+    if len(_hy):
+        assert (_hy.loss_modeled_pct - _hy.worst_day_modeled_pct).abs().max() < 1e-4, (
+            "假设情景路径应为单日，loss_modeled_pct 与 worst_day_modeled_pct 应重合")
+    _h = _cr[_cr.scenario_class != "假设"]
+    print(f"  [对账] 信用区间两列已统一为 1 日量：假设情景 {len(_hy)} 行（路径本即单日，"
+          f"值不变）、历史与补充情景 {len(_h)} 行（由窗口级量重算）")
     write_table(I, RES / "stress_impact.csv")
     write_table(C, RES / "stress_factor_contrib.csv")
     print(f"\n[1] 测算表 → results/stress_impact.csv  {I.shape[0]} 行 × {I.shape[1]} 列")

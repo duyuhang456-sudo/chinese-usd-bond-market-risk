@@ -48,7 +48,7 @@ PHASE2 = [
 # 阶段三 9 张
 PHASE3 = [
     ("stress_scenarios.csv", 112, 15, "[R] 行列"),
-    ("stress_impact.csv", 30, 37, "[R] 行列"),
+    ("stress_impact.csv", 30, 38, "[R] 行列"),
     ("stress_factor_contrib.csv", 150, 10, "[R] 行列"),
     ("stress_coverage.csv", 30, 15, "[R] 行列"),
     ("stress_worst_windows.csv", 80, 8, "[R] 行列"),

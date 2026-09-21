@@ -493,8 +493,15 @@ def main() -> None:
     # 强传导 + 2022 年未解释残差极值（损失大）。故包含关系是 lo ≤ 点估计 ≤ hi。
     # 上端的加项已是用实际偏差幅度修正过的量，**不再叠加缓冲**（叠加即重复计算）。
     cr = I[I.credit_range_lo_pct.notna()].copy()
+    # 比对必须是**同期限**的：信用区间两列已统一为 1 日量，故历史情景取模型路径的
+    # 窗内最差单日（worst_day_modeled_pct），不能取窗末累计的 loss_modeled_pct——
+    # 后者是窗口级量，拿它比 1 日区间正是「累计 vs 单日」的口径错配。
+    # 假设情景路径本身即 1 日，两列数值相同。
+    cr["point_1d"] = cr.apply(
+        lambda r: (r.loss_modeled_pct if r.scenario_class == "假设"
+                   else r.worst_day_modeled_pct), axis=1)
     cr["in_range"] = cr.apply(
-        lambda r: r.credit_range_lo_pct - 1e-9 <= r.loss_modeled_pct
+        lambda r: r.credit_range_lo_pct - 1e-9 <= r.point_1d
         <= r.credit_range_hi_pct + 1e-9, axis=1)
     # 平静样本口径下的强传导端 = 上端减去 2022 残差加项，即修订前那个数，便于逐值对照
     cr["strong_quiet"] = cr.credit_range_hi_pct - CR_2022_RESID
@@ -504,8 +511,8 @@ def main() -> None:
                 f"窗内最大回撤 {r.mdd_pct:+.4f}%（窗内累计口径的残差 "
                 f"{r.residual_pct:+.4f}%）"
                 if r.scenario_class != "假设" else "")
-        print(f"    {r.scenario_id} {r.caliber}口径（模型路径）："
-              f"弱传导 {r.credit_range_lo_pct:+.4f}%  点估计 {r.loss_modeled_pct:+.4f}%  "
+        print(f"    {r.scenario_id} {r.caliber}口径（模型路径，1 日）："
+              f"弱传导 {r.credit_range_lo_pct:+.4f}%  点估计 {r.point_1d:+.4f}%  "
               f"平静强传导 {r.strong_quiet:+.4f}%  →＋2022残差 {r.credit_range_hi_pct:+.4f}%"
               f"  | 1日99%ES {r.es_1d_99_pct:.4f}%{hist}{tag}")
 
