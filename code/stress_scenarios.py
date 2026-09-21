@@ -35,15 +35,28 @@
      一个不含实测最差结果的压力情景库是有缺陷的，故补入并保留这一发现记录。
 
 ------------------------------------------------------------------------------
-二、幅度口径（三套并列，不得混用）
+二、幅度口径（多套并列，不得混用）
 ------------------------------------------------------------------------------
-  ① `single_extreme` 单日极值         —— 窗内/全样本最差单日
-  ② `peak_3d`        3 日累计峰值     —— 滚动 3 日累计和在风险方向的极值  ← **梯度锚点**
-  ③ `cum_window`     窗口累计变动     —— 窗首至窗末的净变动（历史情景专用）
+  ① `peak_1d`        全样本单日极值   —— 样本内最差单日                ← **梯度锚点**
+  ② `single_extreme` 窗内单日极值     —— 该事件窗内最差单日（历史情景）
+  ③ `worst_day`      窗内最差单日     —— 组合两口径的窗内最差单日      ← **历史情景基准**
+  ④ `peak_3d`        3 日累计峰值     —— 滚动 3 日累计和的极值（附录对照，非主口径）
+  ⑤ `cum_window`     窗口累计变动     —— 窗首至窗末的净变动
+     `max_drawdown`  窗内最大回撤     —— 含事件前 NAV=1.0 起点的回撤（伴随列）
 
-**梯度锚点取 ②「3 日累计峰值」**，理由是它与阶段二 δ 传导验证的主窗口
-（`verify_delta_transmission.py` 的 MAIN_WIN = "3日(主)"）同口径，偏差缓冲量级可直接沿用，
-不必另做窗口换算。代价是「轻度」档（1×）已超过样本内任何已实现单日——如实写明，不淡化。
+**梯度锚点取 ①「全样本单日极值」，历史情景基准取 ③「窗内最差单日」**，二者同为 1 日口径，
+与阶段二 VaR 的 1 日持有期对齐，因此情景损失与 1 日 VaR/ES 可直接比较。
+
+本版（1 日重做）之前的锚点是 ④「3 日累计峰值」，理由是它与阶段二 δ 传导验证的主窗口
+（`verify_delta_transmission.py` 的 MAIN_WIN = "3日(主)"）同口径。老师指出主情景库应保持
+1 日持有期，故改为 ①；④ 的数值仍在本表中保留（`peak_3d` 行），供附录做多期近似对照，
+**不再参与任何判定**。改动前后的锚点数值对比见下节。
+
+锚点数值（1 日 vs 原 3 日，bp / %）：
+  Δ5Y   +31 (2022-06-13) ← +54 (2022-06-14)
+  Δ10Y  +28 (2022-06-13) ← +45 (2022-06-14)
+  ΔOAS  +15 (2023-12-13) ← +18 (2023-12-13)
+  FX  −1.5854 (2022-11-14) ← −2.7459 (2022-11-15)
 
 风险方向约定：`d5y_bp`/`d10y_bp`/`doas_bp` **上行**为风险，`fx_ret_pct` **下行**（人民币贬值）
 为风险。滚动极值在 2022-06-14（利率上行）与 2022-12-05（汇率贬值）落在相反两端，取极值时
@@ -109,7 +122,10 @@ ASSUM_DIRS = {
 }
 SEVERITY = [("轻度", 1.0), ("中度", 1.5), ("极端", 2.0)]
 
-ROLL_WIN = 3          # 梯度锚点窗口：滚动 3 日累计和
+# 持有期口径：全库唯一来源。假设情景锚点与历史情景基准都用它，不得再散落字面量。
+HORIZON_DAYS = 1      # 1 日持有期（与阶段二 VaR 口径对齐；老师 9 月指示）
+ANCHOR_WIN = HORIZON_DAYS   # 梯度锚点窗口 = 单日
+ROLL_WIN = 3          # 附录对照用的 3 日窗长，仅供 peak_3d 行，不参与判定
 OAS_START = pd.Timestamp("2023-09-05")
 
 
@@ -208,30 +224,41 @@ def main() -> None:
             if len(s) == 0:
                 continue
             cum, mdd = path_metrics(s)
-            rows.append(dict(scenario_id=sid, scenario_class=cls, scenario_name=name,
-                             lead_direction=lead, window_start=a, window_end=b,
-                             factor=col, factor_cn=cn, unit="%",
-                             measure="cum_window", shock=round(cum, 4), multiple=np.nan,
-                             available=True, anchor_date=str(W.index.max().date()), note=""))
-            rows.append(dict(scenario_id=sid, scenario_class=cls, scenario_name=name,
-                             lead_direction=lead, window_start=a, window_end=b,
-                             factor=col, factor_cn=cn, unit="%",
-                             measure="max_drawdown", shock=round(mdd, 4), multiple=np.nan,
-                             available=True, anchor_date=str(W.index.max().date()), note=""))
-            print(f"     {col:18s} 累计={cum:+8.4f}%  最大回撤={mdd:+8.4f}%")
+            # 窗内最差单日：1 日重做后历史情景的**基准列**来源。组合口径上逐日取最小，
+            # 不等于各因子 `single_extreme` 的相加（各因子的极值落在不同日子），
+            # 故必须单独按组合收益序列算，不能由因子极值合成。
+            wd = float(s.min())
+            wd_dt = str(s.idxmin().date())
+            for meas, val, dt in (("worst_day", wd, wd_dt),
+                                  ("cum_window", cum, str(W.index.max().date())),
+                                  ("max_drawdown", mdd, str(W.index.max().date()))):
+                rows.append(dict(scenario_id=sid, scenario_class=cls, scenario_name=name,
+                                 lead_direction=lead, window_start=a, window_end=b,
+                                 factor=col, factor_cn=cn, unit="%",
+                                 measure=meas, shock=round(val, 4), multiple=np.nan,
+                                 available=True, anchor_date=dt, note=""))
+            print(f"     {col:18s} 最差单日={wd:+8.4f}% ({wd_dt})  累计={cum:+8.4f}%  "
+                  f"最大回撤={mdd:+8.4f}%")
 
     # ---------------------------------------------------------- 3) 假设情景
     print("\n" + "=" * 78)
-    print("假设情景：三类冲击方向 × 轻度/中度/极端（锚点 = 全样本 3 日累计峰值）")
+    print(f"假设情景：三类冲击方向 × 轻度/中度/极端"
+          f"（锚点 = 全样本 {ANCHOR_WIN} 日极值）")
     print("=" * 78)
-    anchor: dict[str, tuple[float, str]] = {}
+    anchor: dict[str, tuple[float, str]] = {}      # 1 日锚点（主口径）
+    anchor3: dict[str, tuple[float, str]] = {}     # 3 日锚点（附录对照，不参与判定）
     for col, (cn, unit, sign) in FACTORS.items():
         s = F[col].dropna()
-        r3 = s.rolling(ROLL_WIN).sum().dropna()
-        v = risk_extreme(r3, sign)
-        dt = str((r3.idxmax() if sign > 0 else r3.idxmin()).date())
+        r1 = s.rolling(ANCHOR_WIN).sum().dropna()
+        v = risk_extreme(r1, sign)
+        dt = str((r1.idxmax() if sign > 0 else r1.idxmin()).date())
         anchor[col] = (v, dt)
-        print(f"  锚点 {col:11s} 3日峰值={v:+9.4f} {unit:2s}  发生日={dt}")
+        r3 = s.rolling(ROLL_WIN).sum().dropna()
+        v3 = risk_extreme(r3, sign)
+        dt3 = str((r3.idxmax() if sign > 0 else r3.idxmin()).date())
+        anchor3[col] = (v3, dt3)
+        print(f"  锚点 {col:11s} {ANCHOR_WIN}日={v:+9.4f} {unit:2s} ({dt})"
+              f"   [附录对照] {ROLL_WIN}日={v3:+9.4f} ({dt3})")
 
     print()
     n_assum = 0
@@ -242,13 +269,22 @@ def main() -> None:
             sid = f"S{n_assum:02d}"
             for col in cols:
                 base, dt = anchor[col]
+                base3, dt3 = anchor3[col]
                 rows.append(dict(scenario_id=sid, scenario_class="假设",
                                  scenario_name=f"{dir_name}·{sev}",
                                  lead_direction=dir_name, window_start="", window_end="",
                                  factor=col, factor_cn=FACTORS[col][0], unit=FACTORS[col][1],
-                                 measure="peak_3d", shock=round(base * mult, 4),
+                                 measure="peak_1d", shock=round(base * mult, 4),
                                  multiple=mult, available=True, anchor_date=dt,
-                                 note=f"历史 3 日累计峰值 {base:.4f} × {mult}"))
+                                 note=f"历史单日极值 {base:.4f} × {mult}"))
+                # 3 日锚点的同梯度值：仅作附录多期近似的对照，不参与判定。
+                rows.append(dict(scenario_id=sid, scenario_class="假设",
+                                 scenario_name=f"{dir_name}·{sev}",
+                                 lead_direction=dir_name, window_start="", window_end="",
+                                 factor=col, factor_cn=FACTORS[col][0], unit=FACTORS[col][1],
+                                 measure="peak_3d", shock=round(base3 * mult, 4),
+                                 multiple=mult, available=True, anchor_date=dt3,
+                                 note=f"[附录对照，不参与判定] 历史 3 日累计峰值 {base3:.4f} × {mult}"))
                 print(f"     {sid} {sev}({mult}×)  {col:11s} {base*mult:+9.4f} {FACTORS[col][1]}")
     # 组合档：利率与信用同时恶化（对齐 IMF WP/15/216「三种冲击同时发生」的做法）
     n_assum += 1
@@ -256,13 +292,21 @@ def main() -> None:
     print(f"  ── 利率+信用同时恶化（组合档）──")
     for col in ["d5y_bp", "d10y_bp", "doas_bp"]:
         base, dt = anchor[col]
+        base3, dt3 = anchor3[col]
         rows.append(dict(scenario_id=sid, scenario_class="假设",
                          scenario_name="利率+信用同时恶化·极端",
                          lead_direction="组合", window_start="", window_end="",
                          factor=col, factor_cn=FACTORS[col][0], unit=FACTORS[col][1],
-                         measure="peak_3d", shock=round(base * 2.0, 4), multiple=2.0,
+                         measure="peak_1d", shock=round(base * 2.0, 4), multiple=2.0,
                          available=True, anchor_date=dt,
                          note="利率与信用同向极端（2×），对齐 IMF WP/15/216 多冲击同时发生"))
+        rows.append(dict(scenario_id=sid, scenario_class="假设",
+                         scenario_name="利率+信用同时恶化·极端",
+                         lead_direction="组合", window_start="", window_end="",
+                         factor=col, factor_cn=FACTORS[col][0], unit=FACTORS[col][1],
+                         measure="peak_3d", shock=round(base3 * 2.0, 4), multiple=2.0,
+                         available=True, anchor_date=dt3,
+                         note="[附录对照，不参与判定] 3 日锚点同梯度值"))
         print(f"     {sid} 极端(2×)  {col:11s} {base*2.0:+9.4f} {FACTORS[col][1]}")
 
     # ---------------------------------------------------------- 4) 落盘
@@ -297,12 +341,13 @@ def main() -> None:
             for r, v in zip(b, vals):
                 ax.text(r.get_x() + r.get_width() / 2, v, f"{v:.1f}",
                         ha="center", va="bottom", fontsize=8, color=INK2)
-        # 历史已实现最差单日参考线：**作为图例项**而非行内文字，避免与柱体重叠。
-        # 这条线是「轻度档已超过样本内任何已实现单日」这一事实的可视证据，必须留。
+        # 样本内最差单日参考线：**作为图例项**而非行内文字，避免与柱体重叠。
+        # 1 日重做后这条线即为梯度锚点本身，与「轻度」档柱顶齐平——轻度档 = 已实现的最差单日，
+        # 中度/极端两档是它的 1.5 倍与 2 倍外推。这条线是锚点口径的可视证据，必须留。
         ref = max(abs(risk_extreme(F[c].dropna(), FACTORS[c][2])) for c in cols)
         ax.axhline(ref, color=INK2, ls="--", lw=1.1)
         ax.plot([], [], color=INK2, ls="--", lw=1.1,
-                label=f"样本内最差单日 {ref:.1f}")
+                label=f"样本内最差单日 {ref:.1f}（=轻度档锚点）")
         ax.set_ylim(0, top * 1.30)          # 留出标注与图例空间
         ax.set_xticks(x)
         ax.set_xticklabels([f"{s}\n({m}×)" for s, m in SEVERITY], fontsize=9)
@@ -314,7 +359,8 @@ def main() -> None:
             ax.spines[sp].set_visible(False)
         ax.legend(fontsize=8, frameon=False, loc="upper left", handlelength=1.6)
 
-    fig.suptitle("假设情景三方向 × 三级梯度（锚点 = 全样本 3 日累计峰值）", fontsize=12, y=0.995)
+    fig.suptitle(f"假设情景三方向 × 三级梯度（锚点 = 全样本最差单日，{HORIZON_DAYS} 日持有期）",
+                 fontsize=12, y=0.995)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(FIG / "stress_scenario_library.png", dpi=150, bbox_inches="tight")
     print("[图] figures/stress_scenario_library.png")
