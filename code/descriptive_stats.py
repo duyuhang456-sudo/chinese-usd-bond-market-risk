@@ -22,12 +22,9 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import CLEAN, FACT, FIG, ensure_dirs
 
-FACT = REPO / "factors"
-FIG = REPO / "figures"
-FACT.mkdir(parents=True, exist_ok=True)
-FIG.mkdir(parents=True, exist_ok=True)
+ensure_dirs()
 
 # (列名, 中文名, 是否收益类(→年化σ), 量纲, 窗口说明)
 SERIES = [
@@ -129,7 +126,7 @@ def main() -> None:
     oas_start = F["oas_bp"].dropna().index.min().date()
     print(f"    因子表 oas_bp/doas_bp      自 {oas_start} 起非空（2023-09 前 NaN 为设计）  OK")
 
-    cal = pd.read_csv(REPO / "clean_data" / "master_calendar.csv", parse_dates=["date"])
+    cal = pd.read_csv(CLEAN / "master_calendar.csv", parse_dates=["date"])
     extra = set(F.index) - set(cal["date"])
     print(f"    主日历天数={len(cal)}  因子表={len(F)}  "
           f"{'日期与主日历完全一致  OK' if not extra else ('!! 差集=' + str(extra))}")

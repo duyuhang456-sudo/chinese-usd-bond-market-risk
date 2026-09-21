@@ -87,13 +87,10 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import FACT, RES, FIG, ensure_dirs
 from var_common import C_M1, C_GARCH, C_ALT, C_GREY, INK2
 
-FACT = REPO / "factors"
-RES = REPO / "results"
-FIG = REPO / "figures"
-FIG.mkdir(exist_ok=True)
+ensure_dirs()
 
 # ---------------------------------------------------------------- 情景定义
 # 历史与补充情景：编号 → (窗起, 窗止, 名称, 主导方向)

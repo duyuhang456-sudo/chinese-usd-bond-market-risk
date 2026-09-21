@@ -98,17 +98,14 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO, write_table
+from common import FACT, RES, FIG, ensure_dirs, write_table
 from var_common import C_M1, C_GARCH, C_ALT, C_GREY, INK2
 # 信用区间上端的加项只在 stress_impact.py 中维护一份常量，此处引用同一个值，
 # 避免两个脚本各写一个数字、日后只改一处导致口径分叉。stress_impact 的模块级代码
 # 只有导入与常量定义（`main()` 有 `__main__` 守卫），import 不触发任何测算。
 from stress_impact import CR_2022_RESID, horizon_es
 
-FACT = REPO / "factors"
-RES = REPO / "results"
-FIG = REPO / "figures"
-FIG.mkdir(exist_ok=True)
+ensure_dirs()
 
 DELTA_SRC = "B 事件前δ"
 HORIZON_MAIN = "1日"        # 主口径持有期（与阶段二 VaR 对齐；老师 9 月指示）

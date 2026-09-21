@@ -34,13 +34,9 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import CLEAN, FACT, FIG, ensure_dirs
 
-CLEAN = REPO / "clean_data"
-FACT = REPO / "factors"
-FIG = REPO / "figures"
-FACT.mkdir(parents=True, exist_ok=True)
-FIG.mkdir(parents=True, exist_ok=True)
+ensure_dirs()
 
 
 def staleness_metrics(adj: pd.Series, flag: pd.Series) -> dict:

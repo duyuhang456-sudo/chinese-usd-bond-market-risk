@@ -58,10 +58,9 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import RES, FIG, ensure_dirs
 
-RES = REPO / "results"
-FIG = REPO / "figures"
+ensure_dirs()
 
 BASE_SCOPE = "common773"
 CORE_SCOPES = ["full", "common773", "common523", "calm", "highvol"]

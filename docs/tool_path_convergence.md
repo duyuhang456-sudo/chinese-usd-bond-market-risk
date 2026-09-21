@@ -187,10 +187,35 @@ EVENTS_CSV: Path = EVENTS_DIR / "risk_events_timeline.csv"
 1. `grep -c "^[A-Z_]* = REPO /" code/*.py` 在 `common.py` 之外返回 0；
 2. `grep -rn 'REPO /' code/*.py` 只应命中 `common.py` 内部；
 3. `python -c "import var_backtest"` 不产生任何输出、不写任何文件（守卫生效）；
-4. 清空 `results/`、`figures/` 后，`python code/run_all.py --only phase2,phase3`
-   一条命令重建全部产物，连跑两次逐字节一致；
+4. 清空 `results/`、`figures/` 后一条命令重建全部产物，连跑两次逐字节一致；
 5. 全部硬断言仍通过（`stress_scenarios.py` 的 log 收益可加性、`stress_impact.py` 的
    HS250 四配置对账与情景完整性、`stress_robustness.py` 的 1 日口径一致性三组）。
+
+### 第 4 条的实测结果与一处修正
+
+**修正**：重建命令**不能**加 `--only phase2,phase3`。原验收条件写的是
+「清空 `results/` 后 `python code/run_all.py --only phase2,phase3` 一条命令重建全部产物」，
+但实测 `results/baseline_var_tr.csv` 由**阶段一**脚本 `build_tr_factors.py` 产出
+（写盘点在 `code/build_tr_factors.py:126`）。加上 `--only phase2,phase3` 后该文件不会被重建，
+而 `var_backtest.py` 依赖它——重建必然半途失败。正确命令是全量 `python code/run_all.py`
+（取数默认跳过，不影响离线复现）。
+
+**实测（2026-09-21）**：
+
+| 检查 | 结果 |
+|---|---|
+| 清空 `results/*.csv` + `figures/*.png` 后 `python code/run_all.py` | 退出码 0；17 步计算成功 / 2 步取数跳过；耗时 51.5s |
+| `check_outputs` 对账 | 26/26 全部一致（阶段二 17 + 阶段三 9） |
+| 产物数 | 26 CSV + 22 PNG = 48 |
+| **与重构前基线比**（`shasum -a 256 -c`，基线取自重构前落盘产物） | **48/48 逐字节相同**——重构行为等价，无一字节改动 |
+| 连跑第二次 | 48/48 逐字节一致——脚本可确定性复现 |
+
+「与重构前基线逐字节相同」是本轮最有力的一条证据：它同时排除了「路径改错写到别处」
+「`ensure_dirs()` 误建目录导致输出分叉」「包装 `main()` 时漏搬或重复执行语句」三类改坏方式。
+上一版 `var_backtest.py` 的包装缺陷正是**没被这一条拦住**的——成因是当时只用
+`shasum -c` 比对了**已存在**的文件，而脚本实际什么都没写、退出码仍为 0；
+补上「清空后重建」这一步才暴露。教训：验收必须**先清空再重建**再比对，
+在已有产物上做校验，跳过执行的一步与真正跑通的一步无法区分。
 
 ---
 

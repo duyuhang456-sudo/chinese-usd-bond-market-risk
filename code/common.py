@@ -3,6 +3,11 @@
 
 原始数据统一存入 raw_data/；本模块只负责“下载并原样归档”，
 日期只做 ISO 化与窗口截取，不做清洗（清洗是第 2 步的任务）。
+
+**本模块是全仓库路径常量的唯一来源。** 各脚本一律 `from common import ...`，
+不再在脚本顶部各自 `REPO / "..."`——此前 `CLEAN`/`FACT`/`RES`/`FIG` 四个常量在
+17 个脚本里共重复定义了 44 处，改一处输出位置要动十几个文件。逐脚本的原定义
+位置与收敛依据见 `docs/tool_path_convergence.md`。
 """
 from __future__ import annotations
 
@@ -13,14 +18,39 @@ import pandas as pd
 # 仓库根目录 = 本文件上一级的上一级
 REPO: Path = Path(__file__).resolve().parent.parent
 RAW: Path = REPO / "raw_data"
+CLEAN: Path = REPO / "clean_data"
+FACT: Path = REPO / "factors"
+RES: Path = REPO / "results"
+FIG: Path = REPO / "figures"
+
+# 风险事件时间线：目录与其中的 CSV 分列两个常量。
+# 二者曾被写成 `EV`（目录）与 `EVENTS`（CSV 文件）两个相近的名字，
+# 看着像同一事物的两种拼写、实际指向不同类型，改名合并会造出同名异指。
+EVENTS_DIR: Path = REPO / "events"
+EVENTS_CSV: Path = EVENTS_DIR / "risk_events_timeline.csv"
+
+# 脚本会写入的目录（raw_data 由 raw_path() 按需创建，events 是人工维护的输入）
+OUT_DIRS: tuple[Path, ...] = (CLEAN, FACT, RES, FIG)
 
 # 近 5 年数据窗口（含 1 个月缓冲，供后续滚动统计/回测使用）
 START: str = "2021-08-01"
 
 
+def ensure_dirs(*paths: Path) -> None:
+    """确保目录存在；不传参数时建全部输出目录。
+
+    `parents=True` 在此写死一次。此前 18 处模块级 mkdir 里 4 处漏了这个参数
+    （`stress_impact.py` / `stress_scenarios.py` / `stress_robustness.py` /
+    `var_backtest.py`），只因仓库根必然存在、父目录总在才没报错——
+    输出一旦改道仓库外即 `FileNotFoundError`。
+    """
+    for p in (paths or OUT_DIRS):
+        p.mkdir(parents=True, exist_ok=True)
+
+
 def raw_path(name: str) -> Path:
     """返回 raw_data 下的目标路径，并确保目录存在。"""
-    RAW.mkdir(parents=True, exist_ok=True)
+    ensure_dirs(RAW)
     return RAW / name
 
 

@@ -28,15 +28,9 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import CLEAN, FACT, RES, FIG, EVENTS_CSV, ensure_dirs
 
-FACT = REPO / "factors"
-CLEAN = REPO / "clean_data"
-EV = REPO / "events"
-RES = REPO / "results"
-FIG = REPO / "figures"
-RES.mkdir(parents=True, exist_ok=True)
-FIG.mkdir(parents=True, exist_ok=True)
+ensure_dirs()
 
 Q_HIGH = 2 / 3          # 高波动 = 滚动年化波动 ≥ 全样本 2/3 分位
 RV_WIN = 60             # 滚动实现波动窗口（交易日）
@@ -109,7 +103,7 @@ def main() -> None:
 
     # 3b) 急性危机窗：事件时间线 ±2 交易日，若窗内 |NAV 日收益| 达 ~4σ（1.2%）则整窗记危机。
     #     客观、可复现（由实现收益触发，不靠人工挑日子）；捕捉 2025-04 关税等短促冲击。
-    ev = pd.read_csv(EV / "risk_events_timeline.csv", parse_dates=["date"])
+    ev = pd.read_csv(EVENTS_CSV, parse_dates=["date"])
     CRISIS_BAR = 1.2                       # %（≈4.5 × 主口径日σ 0.266，复权后略升）
     crisis = pd.Series(False, index=r.index)
     ev_hit: list[str] = []

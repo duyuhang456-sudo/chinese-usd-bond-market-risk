@@ -41,14 +41,11 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import CLEAN, FACT, RES, FIG, ensure_dirs
 from var_common import (WIN, LAM, C_M1, C_GARCH, C_ALT, C_GREY, INK2,
                         hs_var, hs_var_filtered, count_violations)
 
-FACT = REPO / "factors"
-RES = REPO / "results"
-FIG = REPO / "figures"
-FIG.mkdir(parents=True, exist_ok=True)
+ensure_dirs()
 
 WS = (250, 500, 750)            # 窗宽稳健性
 CS = ("95", "99")
@@ -274,7 +271,7 @@ def main() -> None:
     print("        而非模型失效——9/17 凡遇违规日，先查它是否落在此类跳变点附近。")
 
     # ---- [8] 存疑日与 HS 的交互（为 9/17 §8.1 预置证据）-------------------
-    oj_path = REPO / "clean_data" / "outlier_judgment.csv"
+    oj_path = CLEAN / "outlier_judgment.csv"
     if oj_path.exists():
         oj = pd.read_csv(oj_path, parse_dates=["date"])
         sus = oj[oj["verdict"].astype(str).str.contains("存疑", na=False)]

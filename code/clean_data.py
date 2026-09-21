@@ -21,10 +21,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from common import RAW, REPO
+from common import RAW, CLEAN, ensure_dirs
 
-CLEAN = REPO / "clean_data"
-CLEAN.mkdir(parents=True, exist_ok=True)
+ensure_dirs()
 
 FILL_FFILL = 1  # 前值填充
 FILL_LIN = 2    # 线性插值

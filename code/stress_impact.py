@@ -163,13 +163,10 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO, write_table
+from common import FACT, RES, FIG, ensure_dirs, write_table
 from var_common import C_M1, C_GARCH, C_ALT, C_GREY, INK2
 
-FACT = REPO / "factors"
-RES = REPO / "results"
-FIG = REPO / "figures"
-FIG.mkdir(exist_ok=True)
+ensure_dirs()
 
 # ---------------------------------------------------------------- 常量
 # 持有期口径：全库唯一来源，不得再散落字面量（本脚本此前有 3 处独立的「3」）。

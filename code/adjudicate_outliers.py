@@ -14,10 +14,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from common import REPO
+from common import CLEAN, EVENTS_CSV, ensure_dirs
 
-CLEAN = REPO / "clean_data"
-EVENTS = REPO / "events" / "risk_events_timeline.csv"
+ensure_dirs()
 
 # 特殊备注：极少数 9141 极端日与 3141.HK(HKD 柜台) 反向（后者多数日陈旧，仅作参考线索）
 SPECIAL = {
@@ -31,7 +30,7 @@ SPECIAL = {
 
 def main() -> None:
     cand = pd.read_csv(CLEAN / "outlier_candidates.csv", dtype={"date": str})
-    ev = pd.read_csv(EVENTS, dtype={"date": str})
+    ev = pd.read_csv(EVENTS_CSV, dtype={"date": str})
     ev["d"] = pd.to_datetime(ev["date"])
     evd = ev.sort_values("d")
 

@@ -24,9 +24,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from common import REPO
+from common import CLEAN, ensure_dirs
 
-CLEAN = REPO / "clean_data"
+ensure_dirs()
 
 
 def detect(series: pd.Series, name: str, kind: str,

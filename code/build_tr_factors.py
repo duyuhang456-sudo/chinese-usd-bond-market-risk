@@ -31,15 +31,9 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import RAW, CLEAN, FACT, RES, FIG, ensure_dirs
 
-RAW = REPO / "raw_data"
-CLEAN = REPO / "clean_data"
-FACT = REPO / "factors"
-RES = REPO / "results"
-FIG = REPO / "figures"
-for d in (FACT, RES, FIG):
-    d.mkdir(parents=True, exist_ok=True)
+ensure_dirs()
 
 Z95, Z99 = 1.6449, 2.3263
 

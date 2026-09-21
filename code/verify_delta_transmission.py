@@ -76,12 +76,9 @@ plt.rcParams["font.sans-serif"] = ["PingFang HK", "Hiragino Sans GB", "Songti SC
                                    "Arial Unicode MS", "Heiti TC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-from common import REPO
+from common import FACT, RES, FIG, EVENTS_CSV, ensure_dirs
 
-FACT = REPO / "factors"
-EV = REPO / "events"
-RES = REPO / "results"
-FIG = REPO / "figures"
+ensure_dirs()
 
 MIN_EST = 40                       # 事件前扩展窗最少有效交易日
 WINDOWS = {"1日": 1, "3日(主)": 3, "5日": 5}
@@ -114,7 +111,7 @@ def predict(p: dict, X: pd.DataFrame, w: slice, use_fx: bool, use_oas: bool) -> 
 
 def main() -> None:
     F = pd.read_csv(FACT / "factor_table_nav_tr.csv", parse_dates=["date"]).set_index("date")
-    ev = pd.read_csv(EV / "risk_events_timeline.csv", parse_dates=["date"])
+    ev = pd.read_csv(EVENTS_CSV, parse_dates=["date"])
     idx = F.index
     print(f"[输入] factor_table_nav_tr n={len(F)} {idx[0].date()}→{idx[-1].date()}；"
           f"事件 {len(ev)} 条")
