@@ -49,6 +49,7 @@
 - [异常值识别与事件校验说明（异常判定表解读）](docs/outlier_check.md)
 - [三大核心风险因子构建与校验说明（含利差剥离与久期估计）](docs/factors.md)
 - [报价陈旧出路对照（周度 / 官方 NAV / 真实久期修正 → 采用 NAV，阶段二输入口径）](docs/staleness_remedy.md)
+- [工具整合前置盘点：路径常量收敛清单（阶段四 Day 1 施工依据）](docs/tool_path_convergence.md)
 
 *每周计划与交付物随进度在本仓库更新。*
 
