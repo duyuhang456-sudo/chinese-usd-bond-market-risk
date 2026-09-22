@@ -50,6 +50,7 @@
 - [三大核心风险因子构建与校验说明（含利差剥离与久期估计）](docs/factors.md)
 - [报价陈旧出路对照（周度 / 官方 NAV / 真实久期修正 → 采用 NAV，阶段二输入口径）](docs/staleness_remedy.md)
 - [工具整合前置盘点：路径常量收敛清单（阶段四 Day 1 施工依据）](docs/tool_path_convergence.md)
+- **[工具使用说明（环境搭建 / 一键与分阶段运行 / 脚本职责 / 输出物清单 / 图-脚本-数据对应 / 硬断言语义 / 已知边界）](docs/tool_usage.md)**
 
 *每周计划与交付物随进度在本仓库更新。*
 
@@ -156,8 +157,21 @@ docs/        数据说明文档与研究文档
 | `stress_factor_contrib.png` | 因子贡献度分解（残差以纹理单列，不与因子混计） | 9/23 |
 | `stress_coverage.png` | 情景损失在历史 **1 日**损失分布中的位置（含 99% / 99.9% 分位与实测最差单日线） | 9/24，9/25 1 日重做 |
 
-**一键复现**（须按序，`var_historical.py` 依赖 `var_parametric.csv` 的 σ 列；
-后三个脚本只消费 CSV、不重算 VaR，可独立重跑）：
+**一键复现**（推荐入口，19 步按依赖顺序自动串起，默认跳过取数、不联网）：
+
+```bash
+python code/run_all.py            # 全量；跑完自动对账 results/ 与 figures/
+python code/run_all.py --check    # 只对账不重跑
+python code/run_all.py --only phase3
+python code/run_all.py --list     # 列执行清单
+```
+
+在干净 venv 里清空 `results/*.csv` 与 `figures/*.png` 后重跑，48 个产物与清空前
+**逐字节相同**。注意两点：**不能用 `--only phase2,phase3` 重建全部产物**
+（`baseline_var_tr.csv` 是阶段一产物，`var_backtest.py` 依赖它）；
+验证可复现性必须**先清空再重建**，在旧产物上校验发现不了空转的脚本。
+
+分阶段手动执行（须按序，`var_historical.py` 依赖 `var_parametric.csv` 的 σ 列）：
 
 ```bash
 python code/build_factors_nav.py && python code/build_tr_factors.py && python code/prep_phase2.py
@@ -169,6 +183,9 @@ python code/stress_scenarios.py && python code/stress_impact.py && python code/s
 阶段三三步须按序（`stress_impact.py` 消费 `stress_scenarios.csv`，
 `stress_robustness.py` 消费 `stress_impact.csv`）；
 三者只读因子表与阶段二结果 CSV，不重算 VaR，可独立重跑。
+
+环境搭建、脚本职责表、图 ← 脚本 ← 数据三列对应、硬断言语义与已知边界见
+[工具使用说明](docs/tool_usage.md)。
 
 脚本内置多处**硬断言**，任一不满足即报错终止：
 
