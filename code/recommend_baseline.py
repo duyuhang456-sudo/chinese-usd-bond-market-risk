@@ -1,50 +1,17 @@
-"""
-阶段二补充：基准口径定案（95% / 99% 各定一版模型，供阶段三压力测试对标）
+"""基准口径定案：为两个口径各定一版基准模型，供阶段三压力测试对标（阶段二补充 · 9/18）
 
-背景：导师 9/18 反馈——预研项目不能只做方法对比，需明确两个置信度下分别以哪一版模型作为
-      后续压力测试的**基准口径**，说明推荐依据（检验通过率 / 资本占用经济性 / 结果稳定性），
-      并写清淘汰配置的核心原因。
-
-输入：results/backtest_results.csv（9/17 产出的 262 行检验长表）
-      —— 本脚本**不重算任何检验**，只做聚合与排序，保证与回测报告逐字一致。
-产出：results/model_scorecard.csv   模型评分表（口径 × 置信度 × 模型）
+消费：results/backtest_results.csv（9/17 的 262 行检验长表）。本脚本不重算任何检验，只做聚合
+      与排序，以保证与回测报告逐字一致。
+产出：results/model_scorecard.csv、results/baseline_decision.csv
       figures/baseline_model_tradeoff.png
-用法： ./.venv/bin/python code/recommend_baseline.py
-
---------------------------------------------------------------------------
-评判规则（先定门槛、再排序、最后否决——规则写死在脚本里，避免事后挑标准）
-
-  基准样本      资本占用与失败率的**跨模型横比一律在 common773 上做**
-                （主口径 773 天 / 次口径 768 天，2023-08-03 起）。
-                理由：full 范围下各模型样本长度不同（HS250 有 1023 天、FHS 只有 773 天），
-                而 2022-08~2023-08 恰是波动最高的时段，直接比「平均 VaR」会把样本构成
-                差异误读成模型差异。这是本项目 spec 已立的规矩（§6「样本长度不同，
-                直接横比是错的」）。
-                （HS750 窗宽 750，在 common773 上实际只有 523 天，不参与横比排序。）
-
-  门槛 1（通过率，硬）   该模型**可达的**核心评估范围（full / common773 / common523 /
-                         calm / highvol）上 Kupiec LR_uc 全部不拒绝（p_uc >= 0.05）。
-  门槛 2（审慎，硬）     ① 任何 scope 上不得出现**显著风险低估**，即 Kupiec 拒绝且方向为
-                           x > 期望。仅「x 偶然大于期望」不算——小样本下常见，是噪声不是证据。
-                        ② 基准样本失败率相对名义水平的偏离不超过 +10%（过度覆盖方向不设限）。
-                        ③ ①② 必须在 **95% 与 99% 两档上同时满足**。
-                        第 ③ 条的理由：导师要求「把基准模型定死，后面的压力测试、损失对标
-                        才有统一的参照标准」。若 95% 用 A、99% 用 B，两档损失就不可比，
-                        基准也就没定死。这一条同时筛掉了「95% 勉强合格、99% 大幅低估」的
-                        滤波类模型——它们的 95% 合格只是 99% 失守的同一原因的较轻表现。
-  排序（准 > 省）        两档校准偏差均值 = mean(|rate_base/nominal − 1|)，越小越准。
-                        基准口径的本职是当**参照物**，参照物第一要求是准，其次才是省；
-                        资本占用因此不作否决门槛，而作为并列裁决条件。
-  并列裁决               两档校准偏差相差 < 10% 时，取资本占用指数更低者。
-  稳定性否决             ① 条件覆盖落差 |rate_highvol − rate_calm| > 2.0pp，且**仅在该模型
-                           高波动段 T >= 250 时才启用**——HS500/FHS 高波动段仅 88 天，
-                           落差不可测，不由不可测的数字否决模型；
-                        ② 条件蒙特卡洛 p_ind_mc_cond < 0.05 的 scope 数 >= 2，视为聚集性存疑。
-                        触发否决者降级为「备选」，不参与基准排序。
-
-  三项判据的落点：通过率 → 门槛 1；经济性 → 排名表全程披露 + 并列裁决；
-                 稳定性 → 稳定性否决 + 报告中的落差/聚集列。
---------------------------------------------------------------------------
+口径：跨模型横比一律在 common773 上做（主 773 日 / 次 768 日，2023-08-03 起）——full 下各模型
+      样本长度不同，直接比平均 VaR 会把样本构成差异读成模型差异。门槛与排序规则写死在本文件
+      常量里：可达的核心范围 Kupiec 全不拒绝；无显著风险低估、基准样本失败率不超名义 +10%，
+      且两档同时满足；过门槛者按两档校准偏差均值升序取第一名，相差 <10% 时取资本占用更低者。
+      稳定性否决（落差 >2.0pp 且高波动段 T >= 250、聚集存疑 >= 2 个范围）只降为「备选」。
+边界：M1g-t 是对照、M1d 是恒等式，读入后即排除，不参与定案。HS750 在 common773 上只剩 523
+      天，不参与横比排序。同一口径内 95% 与 99% 须为同一版模型，否则两档损失不可比。
+用法：./.venv/bin/python code/recommend_baseline.py
 """
 from __future__ import annotations
 
@@ -78,6 +45,36 @@ T_HIGHVOL_MIN = 250    # 启用落差否决所需的高波动段最小样本量
 
 
 def build_scorecard(R: pd.DataFrame) -> pd.DataFrame:
+    """把逐 (口径, 置信度, 模型, scope) 的回测长表聚合成模型评分表。
+
+    参数：
+        R: 回测长表，每个口径 × 置信度 × 模型 × scope 一行。用到的列为 caliber、conf、
+            model、scope、T、x、exp_x_eff、rate_pct、p_uc、p_ind_mc_cond、mean_var、es。
+            基准样本由 BASE_SCOPE 写死为 common773，只在该 scope 上有记录的模型才进表。
+
+    返回：
+        DataFrame，每行一个 (model, caliber, conf) 组合，列为
+        n_pass_uc_core / n_core_scopes: 该模型可达的核心范围数，以及其中 Kupiec 不拒绝的个数；
+        pass_core: 门槛 1，可达核心范围是否全部通过（bool）；
+        under_coverage: 门槛 2①，是否存在 Kupiec 拒绝且 x > exp_x_eff 的范围（bool）；
+        prudent: 门槛 2②，基准样本失败率是否不超过名义水平的 110%（bool）；
+        rate_base_pct / nominal_pct / rate_over_nominal / cal_dev: 基准样本失败率、名义水平、
+            两者之比、以及 |比值 - 1| 的校准偏差；
+        cap_idx_vs_M1 / mean_var_base_pct: 基准样本平均 VaR，以及它相对同口径同置信度 M1 的倍数；
+        T_base: 基准样本观测数；
+        es_base_pct: 基准样本 ES，非有限值时记 NaN；
+        rate_full_pct: full 范围的失败率；
+        rate_highvol_pct / rate_calm_pct / T_highvol: 高波动段与平稳段的失败率及高波动段样本量，
+            对应 scope 缺失时记 NaN 与 0；
+        stab_scope_pp: 核心范围上失败率的标准差；
+        gap_regime_pp / signed_gap_pp / gap_evaluable: 高波动与平稳段的失败率落差（绝对值与
+            带符号值），以及该落差是否可评估（高波动段 T >= T_HIGHVOL_MIN）；
+        n_ind_suspect: 全部 scope 中条件蒙特卡洛 p_ind_mc_cond < 0.05 的个数。
+
+    备注：
+        资本占用指数以 M1 在基准样本上的平均 VaR 为分母，同口径同置信度各取一个参照值，
+        函数开头的 print 会把它先打出来。tier 不在这里给，由 decide 判定后在 main 里并回。
+    """
     ref_var = {}
     for cal in ("主", "次"):
         for conf in CONFS:
@@ -103,11 +100,11 @@ def build_scorecard(R: pd.DataFrame) -> pd.DataFrame:
                 n_pass = int((sub.loc[core, "p_uc"] >= ALPHA).sum())
                 pass_core = bool(n_pass == len(core))
 
-                # 门槛 2①：不得出现显著风险低估
+                # 门槛 2①：是否存在显著风险低估
                 rej = sub[sub["p_uc"] < ALPHA]
                 under = bool((rej["x"] > rej["exp_x_eff"]).any())
 
-                # 门槛 2②：审慎——基准样本失败率不得显著高于名义
+                # 门槛 2②：基准样本失败率不超名义水平乘 PRUDENCE
                 rate_base = float(sub.loc[BASE_SCOPE, "rate_pct"])
                 rel = rate_base / nom
                 prudent = bool(rel <= PRUDENCE)
@@ -151,7 +148,27 @@ def build_scorecard(R: pd.DataFrame) -> pd.DataFrame:
 
 
 def decide(S: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    """按门槛 1/2 → 稳定性 → 跨置信度自洽 → 排序/并列，逐层判定。"""
+    """按门槛 1/2、稳定性否决、跨置信度自洽、排序与并列裁决逐层定级。
+
+    参数：
+        S: build_scorecard 返回的评分表。
+
+    返回：
+        (D, picks) 二元组。
+        D 为定案表，每行一个 (model, caliber)：g1_pass_rate / g2_prudent 为两条门槛的通过情况，
+        cal_dev_mean / cal_dev_95 / cal_dev_99 为两档校准偏差及其均值，
+        cap_idx_95 / cap_idx_99、rate_95 / rate_99 为两档的资本占用指数与基准样本失败率，
+        gap_95 / gap_99 / gap_95_eval 为两档的条件覆盖落差及是否可评估，n_ind_max 为聚集性存疑
+        计数的两档最大值，tier 取「推荐」「备选」「淘汰」，reason 为淘汰或降级原因（多条用「；」
+        连接，无原因记 "—"）。
+        picks 为 dict，键 (口径, "model") 给出该口径的基准模型名，(口径, "rule") 给出定选规则
+        文本；某口径没有任何模型进「推荐」档时，只写 (口径, "model") 且值为 None，
+        不写 (口径, "rule") 键。
+
+    备注：
+        模型须在 95% 与 99% 两档上都出现在 S 中才参与判定，故 g1/g2 天然是跨两档的合取。
+        稳定性否决只把模型降为「备选」，不淘汰；排名只在「推荐」档内按校准偏差做。
+    """
     rec = []
     for cal in ("主", "次"):
         for m in MODELS:
@@ -192,7 +209,7 @@ def decide(S: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
                     reasons.append(f"{conf}% 失败率 {r['rate_base_pct']:.2f}% 超名义 "
                                    f"{r['nominal_pct']:.0f}% 的 {(r['rate_over_nominal']-1)*100:.0f}%")
             reasons += vetoes
-            # 去重（两档原因相同时只留一条）
+            # 两档原因相同时只留一条
             seen, uniq = set(), []
             for t in reasons:
                 k = t.split(" ", 1)[1] if " " in t else t
@@ -239,6 +256,20 @@ def decide(S: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
 
 def main() -> None:
+    """聚合 9/17 的回测长表，为两个口径各定一版基准模型，并出评分表与取舍平面图。
+
+    脚本契约：
+        消费：results/backtest_results.csv，只保留 MODELS 里的模型行（M1g-t 是对照、
+              M1d 是恒等式，都在读入后即排除）。
+        产出：results/model_scorecard.csv（评分表，在 build_scorecard 的列后并入 verdict）、
+              results/baseline_decision.csv（定案表，逐模型给出 tier 与淘汰/降级原因）、
+              figures/baseline_model_tradeoff.png（95% 与 99% 两张散点图，横轴为相对 M1 的资本
+              占用指数、纵轴为基准样本失败率，标出推荐模型并画出名义水平与审慎条款上限）。
+        断言/边界：无硬断言。脚本不重算任何检验，只做聚合与排序，以保证与 9/17 回测报告逐字一致。
+              基准样本写死为 common773（主口径 773 天 / 次口径 768 天）；HS750 窗宽 750 天，
+              在该样本上只剩 523 天。主次口径各定一版，但每个口径内 95% 与 99% 必须是同一版模型，
+              否则两档损失不可比。
+    """
     R = pd.read_csv(RES / "backtest_results.csv")
     R = R[R["model"].isin(MODELS)].copy()     # 排除 M1g-t（对照）与 M1d（恒等式）
     print(f"[输入] backtest_results.csv 主模型行数={len(R)}")
@@ -274,8 +305,11 @@ def main() -> None:
             print(f"[定案] {cal}口径：无模型通过门槛 1 + 门槛 2")
             continue
         r = D[(D.caliber == cal) & (D.model == m)].iloc[0]
-        print(f"[定案] {cal}口径 基准 = **{m}**（95% 与 99% 同一版模型）")
-        print(f"       通过率   Kupiec 核心范围 5/5 全过（95% 与 99% 均是）")
+        s3 = S[(S.caliber == cal) & (S.model == m)].set_index("conf")
+        print(f"[定案] {cal}口径 基准 = {m}（95% 与 99% 同一版模型）")
+        print(f"       通过率   Kupiec 核心范围 "
+              f"{int(s3.loc[95, 'n_pass_uc_core'])}/{int(s3.loc[95, 'n_core_scopes'])}（95%）、"
+              f"{int(s3.loc[99, 'n_pass_uc_core'])}/{int(s3.loc[99, 'n_core_scopes'])}（99%）全过")
         print(f"       校准     95% 失败率 {r['rate_95']:.2f}%（名义 5%，相对 "
               f"{r['rate_95']/5:.3f}）；99% 失败率 {r['rate_99']:.2f}%（名义 1%，相对 "
               f"{r['rate_99']/1:.3f}）；两档校准偏差均值 {r['cal_dev_mean']:.4f}")
@@ -304,7 +338,7 @@ def main() -> None:
                           f"（超损倍数 {sub.loc[c, 'es_base_pct']/sub.loc[c, 'mean_var_base_pct']:.3f}）"
                           for c in CONFS))
 
-    # ============ 图：基准样本上的 资本占用 × 覆盖率 ============
+    # ---- 图：基准样本上的资本占用 × 覆盖率 ----
     fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.4))
     for ax, conf in zip(axes, CONFS):
         nom = NOMINAL[conf]

@@ -1,13 +1,11 @@
-"""
-一键下载全部数据源（第 1 阶段 · 第 1 天）
-用法：
-    cd 仓库根目录
-    ./.venv/bin/python code/download_all.py
+"""一键下载全部数据源（阶段一 第 1 天）
 
-数据源（对应 docs/data_sources.md）：
-  1) FRED       汇率 / 新兴市场IG利差 / 政策利率 / CPI
-  2) Treasury   美债收益率曲线（无风险利率基准）
-  3) Benchmark  正式标的 9141.HK（中资/亚洲美元投资级债代理）
+消费：无（需联网）
+产出：raw_data/ 下的 FRED 序列、美债收益率曲线、9141.HK 行情
+口径：三类来源分工——FRED 取汇率 / 新兴市场 IG 利差 / 政策利率 / CPI；Treasury 取美债收益率
+      曲线（无风险利率基准）；Benchmark 取正式标的 9141.HK（中资/亚洲美元投资级债代理）。
+      各子脚本只做「下载并原样归档」，日期仅做 ISO 化与窗口截取，不清洗。
+用法：在仓库根目录执行 ./.venv/bin/python code/download_all.py
 """
 from __future__ import annotations
 
@@ -19,6 +17,18 @@ import download_treasury
 
 
 def main() -> None:
+    """依次下载三类数据源并打印汇总，是阶段一的取数入口。
+
+    脚本契约：
+        消费：FRED / treasury.gov / Yahoo 三个外部接口（均需联网）。
+        产出：raw_data/ 下的 fred_*.csv、treasury_yield_curve.csv、
+            benchmark_9141HK.csv。
+        边界：标的下载失败只打印跳过、不中断——另外两类数据仍应落地。
+            本脚本不含 9141.HK 的日度 NAV，那条由 download_nav.py 单独跑。
+
+    返回：
+        None。
+    """
     print("=" * 60)
     print("1/3  下载 FRED 系列（汇率/利差/政策利率/CPI）")
     print("=" * 60)

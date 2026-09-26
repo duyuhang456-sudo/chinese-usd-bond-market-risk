@@ -1,12 +1,12 @@
-"""
-正式标的下载 —— ChinaAMC 亚洲美元投资级债 ETF（9141.HK，美元柜台）
+"""正式标的下载 —— ChinaAMC 亚洲美元投资级债 ETF（9141.HK，美元柜台）
 
-对应需求文档 3.2「标的行情数据」：作为中资/亚洲投资级美元债组合的代理标的。
-背景：文档原指定 MCHB（iShares 中国投资级美元债 ETF），经 Yahoo 核实该代码实为
-Mechanics Bancorp 银行股，市场中不存在对应 iShares 基金；经确认（2026-09-07），
-正式标的改用 9141.HK。数据经 Yahoo Finance 获取，含日度 OHLC / Adj Close / Volume。
-
-若需 HKD 柜台（3141.HK）或换其它 ticker，改 TICKER 与 OUT 即可。
+消费：无（需联网，Yahoo Finance）
+产出：raw_data/ 下的 9141.HK 日度 OHLC / Adj Close / Volume
+口径：对应需求文档 3.2「标的行情数据」，作为中资/亚洲投资级美元债组合的代理标的。文档原
+      指定 MCHB（iShares 中国投资级美元债 ETF），经 Yahoo 核实该代码实为 Mechanics Bancorp
+      银行股，市场中不存在对应 iShares 基金；经确认（2026-09-07），正式标的改用 9141.HK。
+      若需 HKD 柜台（3141.HK）或换其它 ticker，改 TICKER 与 OUT 即可。
+用法：./.venv/bin/python code/download_benchmark.py
 """
 from __future__ import annotations
 
@@ -23,6 +23,12 @@ MAX_ATTEMPT = 5
 
 
 def _fetch() -> pd.DataFrame:
+    """向 Yahoo 拉取一次 9141.HK 的日线，不做重试。
+
+    返回：
+        日线表，列为 Date / Open / High / Low / Close / Adj Close / Volume，
+        Date 已去掉时区。取不到数据时抛 RuntimeError。
+    """
     import yfinance as yf
     hist = yf.Ticker(TICKER).history(start=START, auto_adjust=False)
     if hist is None or hist.empty:
@@ -35,7 +41,17 @@ def _fetch() -> pd.DataFrame:
 
 
 def download_benchmark(attempts: int = MAX_ATTEMPT) -> pd.DataFrame:
-    """下载正式标的 9141.HK 至 raw_data/benchmark_9141HK.csv。"""
+    """下载正式标的 9141.HK 并归档到 raw_data/benchmark_9141HK.csv。
+
+    参数：
+        attempts: 最大尝试次数。每次失败后等待 20×第几次 秒再重试（线性退避）。
+
+    返回：
+        下载到的日线表，与 _fetch() 的列一致。
+
+    异常：
+        全部尝试失败时抛 RuntimeError，并带上最后一次的错误。
+    """
     last_err: Exception | None = None
     for i in range(1, attempts + 1):
         try:

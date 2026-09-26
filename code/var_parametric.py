@@ -1,25 +1,16 @@
-"""
-阶段二 Day2（9/15）参数法 VaR —— 无条件正态 / GARCH(1,1) 条件 / 因子协方差 δ-normal（双口径）
+"""阶段二 Day2（9/15）参数法 VaR：无条件正态 / GARCH(1,1) 条件 / 因子协方差 δ-normal（双口径）
 
-输入：factors/factor_table_nav_tr.csv（复权主口径 etf_ret_tr_pct + 人民币次口径 etf_ret_rmb_pct，
-      源见 build_tr_factors.py）；δ 由复权主口径全样本同日回归估计（与 prep_phase2 一致）。
-口径：1 日持有期；95% / 99%；**VaR = z_c · σ（μ=0，spec §1）**；逐日样本外前推。
-
-四个参数化变体（均逐日滚出样本外预测，供 9/17 回测直接消费）：
-  M1   无条件正态    ：σ 取**滚动 250 交易日**窗（[t−250, t−1]），与回测协议 §7.1 同窗
-  M1g  GARCH(1,1)    ：**扩展窗逐日重估**（arch 7.2.0，正态为主 + Student-t 对照），
-                       σ_t = 对 t 的一步向前条件波动预测（仅用 ≤ t−1 信息）
-  M1e  EWMA(λ=0.94)  ：spec §8.3 的回退对照——实测 α+β≈0.996（近 IGARCH），故并行报告
-  M1δ  因子 δ-normal ：滚动 250 窗估三因子（Δ5Y/Δ10Y/利差代理）协方差 Σ_w，σ_p=√(δ′Σ_w δ)
-
-人民币次口径（对照）：同法在 etf_ret_rmb_pct 上重做；δ_rmb = δ + 汇率暴露 1。
-CNY 尾 5 交易日源未发布 → 该段 NaN 记档（不伪造），故次口径样本略短。
-
-产出：results/var_parametric.csv（逐日：收益 / 各模型 σ_t / 各模型 VaR95·99，主口径 + 次口径分列）
-      figures/var_garch_sigma.png   波动率估计对比（GARCH σ_t vs EWMA vs 无条件，双口径分面）
-      figures/var_series_compare.png 收益 + 三模型 VaR（口径 × 置信度 小多图）
-
-用法： ./.venv/bin/python code/var_parametric.py
+消费：factors/factor_table_nav_tr.csv（复权主口径 etf_ret_tr_pct + 人民币次口径 etf_ret_rmb_pct）
+产出：results/var_parametric.csv（逐日：收益 / 各模型 σ_t / 各模型 VaR95·99，主次口径分列）；
+      results/var_attribution.csv；figures/var_garch_sigma.png、var_series_compare.png
+口径：1 日持有期；95% / 99%；VaR = z_c · σ（μ=0，spec §1）；逐日样本外前推。四个变体：M1
+      无条件正态取滚动 250 日窗 [t−250, t−1]（与回测协议 §7.1 同窗）；M1g GARCH(1,1) 扩展窗
+      逐日重估（arch 7.2.0，正态为主 + Student-t 对照），σ_t 是只用 ≤ t−1 信息的一步向前
+      条件波动；M1e EWMA(λ=0.94) 是 spec §8.3 的回退对照（实测 α+β≈0.996，近 IGARCH）；
+      M1δ 因子 δ-normal 用滚动 250 窗估三因子协方差 Σ_w。δ 由复权主口径全样本同日回归估计，
+      次口径同法重做且 δ_rmb = δ + 汇率暴露 1。
+边界：CNY 源尾 5 交易日未发布 → 该段 NaN 记档，不伪造，故次口径样本略短。
+用法：./.venv/bin/python code/var_parametric.py
 """
 from __future__ import annotations
 
@@ -43,17 +34,29 @@ from var_common import (WIN, Z, LAM, C_M1, C_GARCH, C_ALT, C_GREY, INK2,
 
 ensure_dirs()
 
-SCALE = 10.0                    # GARCH 输入缩放（% → 约 1 量级，改善优化器收敛，输出再除回）
+SCALE = 10.0                    # GARCH 输入缩放：% 数值约 1 量级，改善优化器收敛，输出再除回
 C_EWMA = C_ALT                  # 本脚本第三序列槽位 = EWMA（见 var_common 的槽位约定）
 
 
-# ---------------------------------------------------------------- 估计器
+# ---- 估计器 ----
 # sigma_uncond（M1）/ sigma_ewma（M1e）/ 违规判定已抽到 var_common.py，供 9/16、9/17 共用。
 def sigma_garch(r: pd.Series, dist: str = "normal") -> tuple[pd.Series, dict, pd.DataFrame]:
     """M1g：扩展窗逐日重估 GARCH(1,1)，σ_t = 一步向前条件波动（信息 ≤ t−1）。
 
-    同时记录每次重估的 α/β：近 IGARCH 数据下 MLE 会落到 **α→0、β→1 的边界**，
-    此时 σ_t 退化为常数（不再是条件波动）——必须逐日留痕并如实披露，不能默认它是「GARCH 条件化」。
+    参数：
+        r: 日收益序列（%）。输入前乘 SCALE=10 以改善优化器收敛，输出再除回。
+        dist: 新息分布，'normal' 或 't'。
+
+    返回：
+        (sig, diag, tr) 三元组：
+        sig 为与 r 同索引的 σ 序列（%），前 WIN 个位置为 NaN，第 t 个位置的取值只用 r[:t]；
+        diag 为 dict，键 dist / mu / omega / alpha / beta / persist / loglik / nu / n，
+        取自全样本拟合，仅用于报告系数与平稳性，不参与逐日预测（nu 在 normal 下为 NaN）；
+        tr 为 DataFrame，索引同 r，列为 alpha / beta / persist，逐日记录每次重估的系数。
+
+    备注：
+        近 IGARCH 数据下 MLE 会落到 α→0、β→1 的边界，此时 σ_t 退化为常数（不再是条件波动）——
+        必须逐日留痕并如实披露，不能默认它是「GARCH 条件化」。
     """
     sig = pd.Series(np.nan, index=r.index)
     tr = pd.DataFrame(np.nan, index=r.index, columns=["alpha", "beta", "persist"])
@@ -81,7 +84,20 @@ def sigma_garch(r: pd.Series, dist: str = "normal") -> tuple[pd.Series, dict, pd
 
 
 def sigma_dnorm(fac: pd.DataFrame, delta: pd.Series, win: int = WIN) -> pd.Series:
-    """M1δ：滚动窗因子协方差 Σ_w → σ_p = √(δ′Σ_w δ)。"""
+    """M1δ：滚动窗因子协方差 Σ_w → σ_p = √(δ′Σ_w δ)。
+
+    参数：
+        fac: 因子表，列为因子、索引为交易日。
+        delta: 因子暴露向量，长度与顺序须与 fac 的列一致。
+        win: 滚动窗长（交易日），默认 250。
+
+    返回：
+        与 fac 同索引的 σ 序列；窗内有 NaN（次口径汇率尾段）或窗未满的位置为 NaN。
+
+    备注：
+        第三因子「利差代理」是同一次 OLS 的残差，故任意窗口内 δ′Σ_w δ ≡ var_w(r) 是代数恒等式——
+        M1δ 与 M1 的 σ 数值上恒等，不构成独立模型证据（见 main 的 [4] 段）。
+    """
     sig = pd.Series(np.nan, index=fac.index)
     X = fac.values
     d = delta.values
@@ -96,7 +112,17 @@ def sigma_dnorm(fac: pd.DataFrame, delta: pd.Series, win: int = WIN) -> pd.Serie
 def var_attribution(fac: pd.DataFrame, delta: pd.Series, win: int = WIN) -> pd.Series:
     """因子方差贡献份额（%）：对每窗算 δ_i·(Σ_w δ)_i / δ′Σ_w δ 后取均值。
 
-    这是 δ-normal 相对「直接法」的**增量价值**所在——恒等的 σ 之下给出「利率 vs 残差」的拆解。
+    参数：
+        fac: 因子表，列为因子、索引为交易日。
+        delta: 因子暴露向量，长度与顺序须与 fac 的列一致。
+        win: 滚动窗长（交易日），默认 250。
+
+    返回：
+        Series，索引为 fac 的列名（因子名），值为各因子的窗口平均方差贡献份额（%）。
+        窗内总方差 ≤0（或含 NaN）的窗不计入该次平均。
+
+    备注：
+        这是 δ-normal 相对「直接法」的增量价值所在——恒等的 σ 之下给出「利率 vs 残差」的拆解。
     """
     X, d = fac.values, delta.values
     share = np.full((len(fac), len(d)), np.nan)
@@ -111,8 +137,22 @@ def var_attribution(fac: pd.DataFrame, delta: pd.Series, win: int = WIN) -> pd.S
     return pd.DataFrame(share, index=fac.index, columns=fac.columns).mean()
 
 
-# ---------------------------------------------------------------- 主流程
+# ---- 主流程 ----
 def main() -> None:
+    """参数法 VaR 主流程（其余口径说明见模块 docstring）。
+
+    脚本契约：
+        消费：factors/factor_table_nav_tr.csv（复权主口径 etf_ret_tr_pct、人民币次口径 etf_ret_rmb_pct，
+            以及 d5y_bp / d10y_bp / etf_spread_proxy_tr_pct / fx_ret_pct 因子列）。
+        产出：results/var_parametric.csv（样本外第 WIN+1 个收益日起的逐日 σ 与 VaR95·99，主口径与
+            次口径分列）；results/garch_refit_trace_main.csv 与 results/garch_refit_trace_rmb.csv
+            （逐日重估的 α / β / α+β）；results/var_attribution.csv（因子方差贡献份额）；
+            figures/var_garch_sigma.png、figures/var_series_compare.png。
+        断言/边界：人民币次口径的 NaN 必须是连续尾段（CNY 源未发布），否则断言失败；δ 由复权主口径
+            全样本同日 OLS 估计，次口径用 δ_rmb = δ + 汇率 1；GARCH 逐日预测为扩展窗重估，
+            全样本诊断系数只用于报告、不参与预测；M1δ 与 M1 的 σ 恒等，故不进图、只在文字与
+            var_attribution.csv 中披露。
+    """
     F = pd.read_csv(FACT / "factor_table_nav_tr.csv", parse_dates=["date"]).set_index("date")
     r_main = F["etf_ret_tr_pct"].astype(float)
     r_rmb = F["etf_ret_rmb_pct"].astype(float)
@@ -125,7 +165,7 @@ def main() -> None:
     print(f"[输入] factor_table_nav_tr rows={len(F)}  主口径 n={r_main.notna().sum()}  "
           f"次口径 n={len(r_rmb_v)}（CNY 尾 {n_tail} 日记 NaN，不伪造）")
 
-    # ---- δ：复权主口径全样本同日回归 -------------------------------------
+    # ---- δ：复权主口径全样本同日回归 ----
     X = sm.add_constant(pd.DataFrame({"d5y": F["d5y_bp"], "d10y": F["d10y_bp"]}))
     dfa = pd.concat([r_main.rename("y"), X], axis=1).dropna()
     m = sm.OLS(dfa["y"], dfa[["const", "d5y", "d10y"]]).fit()
@@ -135,7 +175,7 @@ def main() -> None:
     print(f"[δ] 复权主口径同日回归 β5={b5:+.4f} β10={b10:+.4f} "
           f"（等效久期≈{-(b5+b10)*100:.2f}y，R²={m.rsquared:.3f}）")
 
-    # ---- 各模型 σ_t -------------------------------------------------------
+    # ---- 各模型 σ_t ----
     out = pd.DataFrame(index=F.index)
     out["ret_tr_pct"] = r_main
 
@@ -155,7 +195,7 @@ def main() -> None:
         for k, v in var_cols(s, tag).items():
             out[k] = v
 
-    # ---- 人民币次口径（对照） --------------------------------------------
+    # ---- 人民币次口径（对照） ----
     out["ret_rmb_pct"] = r_rmb
     s_unc_r = sigma_uncond(r_rmb_v).reindex(F.index)
     s_g_r, diag_r, tr_r = sigma_garch(r_rmb_v, "normal")
@@ -172,14 +212,14 @@ def main() -> None:
         for k, v in var_cols(s, tag).items():
             out[k] = v
 
-    # ---- 样本外切片（第 251 个收益日起）----------------------------------
+    # ---- 样本外切片（第 251 个收益日起） ----
     oos = out.iloc[WIN:].copy()
     oos.index.name = "date"
     oos.round(6).to_csv(RES / "var_parametric.csv", encoding="utf-8-sig")
     print(f"\n[1] 逐日样本外预测 → results/var_parametric.csv  rows={len(oos)}"
           f"（{oos.index[0].date()} ~ {oos.index[-1].date()}）")
 
-    # ---- GARCH 诊断 -------------------------------------------------------
+    # ---- GARCH 诊断 ----
     print("\n[2] GARCH(1,1) 全样本拟合诊断（逐日预测为扩展窗重估，非本组系数）：")
     for lbl, d in [("主口径 · 正态", diag_n), ("主口径 · Student-t", diag_t), ("次口径 · 正态", diag_r)]:
         extra = f" ν={d['nu']:.2f}" if np.isfinite(d["nu"]) else ""
@@ -202,7 +242,7 @@ def main() -> None:
     tr_r.to_csv(RES / "garch_refit_trace_rmb.csv", encoding="utf-8-sig")
     bad_r = tr_r.index[tr_r["alpha"] < 1e-4]
 
-    # ---- 模型对比表 -------------------------------------------------------
+    # ---- 模型对比表 ----
     print("\n[3] 样本外平均 VaR（μ=0，%/日）与平均 σ：")
     rows = []
     for lbl, col95, col99, sigcol in [
@@ -234,7 +274,7 @@ def main() -> None:
     print(f"    次口径有效样本 {int(oos['ret_rmb_pct'].notna().sum())}"
           f"/{len(oos)} 日（CNY 尾 {n_tail} 日为 NaN，逐日对照从该段起留空）")
 
-    # ---- δ-normal 的等价性与归因（重要披露）------------------------------
+    # ---- δ-normal 的等价性与归因（重要披露） ----
     dmax = float((oos["sig_dnorm"] - oos["sig_uncond"]).abs().max())
     dmax_r = float((oos["rmb_sig_dnorm"] - oos["rmb_sig_uncond"]).abs().max())
     print(f"\n[4] M1δ 与 M1 的 σ 最大差异：主口径 {dmax:.2e}、次口径 {dmax_r:.2e} 个百分点"
@@ -244,7 +284,8 @@ def main() -> None:
     NAME = {"d5y_bp": "Δ5Y", "d10y_bp": "Δ10Y", "spread": "利差代理（残差）", "fx": "汇率 CNY/USD"}
     attr_m = var_attribution(fac_m, delta)
     attr_r = var_attribution(fac_r, delta_rmb)
-    # 注意：两个 Series 因子集不同（次口径多一个 fx），DataFrame 会按索引并集**字典序**排行 → 必须显式 reindex
+    # 两个 Series 因子集不同（次口径多一个 fx），DataFrame 会按索引并集字典序排行，
+    # 故必须显式 reindex
     attr = (pd.DataFrame({"主口径（复权 USD）": attr_m, "人民币次口径": attr_r})
             .reindex(["d5y_bp", "d10y_bp", "spread", "fx"]).rename(index=NAME))
     attr.to_csv(RES / "var_attribution.csv", encoding="utf-8-sig")
@@ -257,14 +298,15 @@ def main() -> None:
     print(f"    次口径：利率 {c_r['Δ5Y'] + c_r['Δ10Y']:.1f}%、残差 {c_r['利差代理（残差）']:.1f}%、"
           f"汇率 {c_r['汇率 CNY/USD']:.1f}% → 产出 results/var_attribution.csv")
 
-    # ---- 图 1：波动率估计对比（双口径分面）-------------------------------
+    # ---- 图 1：波动率估计对比（双口径分面） ----
     fig, axes = plt.subplots(2, 1, figsize=(11.5, 6.2), sharex=True)
     for ax, lbl, cols in [(axes[0], "主口径（复权 USD）",
                            [("sig_uncond", "无条件（滚动 250 日）", C_M1),
                             ("sig_garch", "GARCH(1,1)", C_GARCH),
                             ("sig_ewma", "EWMA(0.94)", C_EWMA)]),
-                          # 两面板都只画「相互独立」的三个估计量：δ-normal ≡ M1 会精确压在同一条线上，
-                          # 画出来等于藏一条线；该等价性改由 [4] 段文字与 results/var_attribution.csv 披露
+                          # 两面板都只画相互独立的三个估计量：δ-normal ≡ M1 会精确压在
+                          # 同一条线上，画出来等于藏一条线；该等价性改由 [4] 段文字与
+                          # results/var_attribution.csv 披露
                           (axes[1], "人民币次口径",
                            [("rmb_sig_uncond", "无条件（滚动 250 日）", C_M1),
                             ("rmb_sig_garch", "GARCH(1,1)", C_GARCH),
@@ -276,7 +318,7 @@ def main() -> None:
             ax.plot(s.index, s * 100, lw=1.2, color=c, label=name)
             if s.notna().any():
                 labs.append([float(s.dropna().iloc[-1]) * 100, "  " + name.split("（")[0], c])
-        # 末端三条线收敛到同一水平 → 直标必须做最小间距撑开，否则文字互相压叠
+        # 末端三条线收敛到同一水平，直标须做最小间距撑开，否则文字互相压叠
         labs.sort()
         for i in range(1, len(labs)):
             labs[i][0] = max(labs[i][0], labs[i - 1][0] + 2.8)
@@ -286,7 +328,8 @@ def main() -> None:
         ax.set_ylabel("条件日波动 σ_t (bp)")
         ax.margins(x=0.14)
         ax.grid(alpha=.25, lw=.6)
-    # 次口径早期 α→0/β→1 的边界解区段：GARCH 线在此处是常数，必须标出来，否则读图会误以为它真在条件化
+    # 次口径早期 α→0/β→1 的边界解区段：GARCH 线在此处是常数，须标出来，否则读图会误以为
+    # 它真在条件化
     if len(bad_r):
         axes[1].axvspan(bad_r[0], bad_r[-1], color=INK2, alpha=.08, lw=0)
         axes[1].text(bad_r[0], 0.045, " 阴影段：MLE 落 α→0/β→1 边界，GARCH\n σ_t 退化为常数（非条件波动）",
@@ -298,7 +341,7 @@ def main() -> None:
     fig.savefig(FIG / "var_garch_sigma.png", dpi=150)
     print("\n[图] figures/var_garch_sigma.png")
 
-    # ---- 图 2：收益 + 三模型 VaR（口径 × 置信度，小多图）-----------------
+    # ---- 图 2：收益 + 三模型 VaR（口径 × 置信度，小多图） ----
     fig, axes = plt.subplots(2, 2, figsize=(12.4, 6.4), sharex=True)
     panels = [("主口径（复权 USD）", "ret_tr_pct", "m1", "garch", "ewma"),
               ("人民币次口径", "ret_rmb_pct", "rmb_m1", "rmb_garch", "rmb_ewma")]

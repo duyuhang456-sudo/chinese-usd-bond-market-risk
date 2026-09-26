@@ -1,23 +1,19 @@
-"""
-9141.HK 报价陈旧的三条出路对照实验（阶段一 · 为阶段二 VaR 选输入口径）
+"""9141.HK 报价陈旧的三条出路对照实验（阶段一 · 为阶段二 VaR 选输入口径）
 
-问题：9141.HK（USD 柜台，正式标的）62.7% 相邻真实报价不变 → 日度收益大量为 0，
-      直接喂日度 VaR 会系统性低估波动/稀释久期。
-出路（都试，最后给推荐）：
-  A) 周度频率  —— 隔周价格必然变化，陈旧消失；代价=观测数减半、日度 VaR 需 /√5 折算
-  B) 官方 NAV  —— 9141.HK 每单位资产净值(USD)，基金管理人逐日披露（MoneyDJ 镜像、
-                   官方锚点 2026-04-14=1.8930 / 2026-07-03=1.8737 已验证）→ 真正日度、低陈旧
-  C) 真实久期口径修正 —— 用「仅变动日」标定的真实久期(≈3.3y) β，把陈旧日的
-                   利率面收益补上（利率因子本身逐日可得、永不停更）；
-                   另给因子法风险估计（利率由真久期×日度因子方差、利差用变动日残差方差）
-
-对照尺子（全部为同一把）：
-  零收益占比 / n / 年化波动 / 日等价σ / 利率剥离 R² / 等效久期 / 利差代理 vs ΔOAS
-  （2023-09+，滞后一日）的 ρ 与命中率 / 正态 1 日 99% VaR。
-  其中 官方 NAV 是「真实日度估值」，作为其它方案的最优参照（ground truth）。
-
-用法： ./.venv/bin/python code/staleness_remedy.py
-输出： factors/staleness_remedy_comparison.csv、figures/staleness_remedy.png
+消费：clean_data/ 下的 treasury_yield_curve_clean.csv、fred_DEXCHUS_clean.csv、
+      fred_BAMLEMIBHGCRPIOAS_clean.csv、benchmark_9141HK_clean.csv、nav_9141HK_clean.csv
+产出：factors/staleness_remedy_comparison.csv、figures/staleness_remedy.png
+口径：问题是 9141.HK（USD 柜台，正式标的）62.7% 相邻真实报价不变，日度收益大量为 0，直接
+      喂日度 VaR 会系统性低估波动、稀释久期。三条出路都试：A) 周度频率，隔周价格必然变化、
+      陈旧消失，代价是观测数减半、日度 VaR 需 /√5 折算；B) 官方 NAV，管理人逐日披露的每
+      单位资产净值(USD)，是真正日度、低陈旧的序列；C) 真实久期口径修正，用仅变动日标定的
+      真实久期（≈3.3y）β 把陈旧日的利率面收益补上，另给因子法风险估计（利率用真久期 ×
+      日度因子方差，利差用变动日残差方差）。对照尺子共用同一把：零收益占比 / n / 年化波动 /
+      日等价 σ / 利率剥离 R² / 等效久期 / 利差代理 vs 滞后一日 ΔOAS（2023-09 起）的 ρ 与
+      命中率 / 正态 1 日 99% VaR。
+边界：官方 NAV 当作其它方案的最优参照（ground truth），但它本身来自 MoneyDJ 镜像源，锚点
+      校验见 code/download_nav.py。
+用法：./.venv/bin/python code/staleness_remedy.py
 """
 from __future__ import annotations
 
@@ -40,7 +36,19 @@ VAR99 = 2.326  # 正态 1 日 99% 分位数
 
 
 def zshare(x: pd.Series) -> tuple[int, float]:
-    """零收益占比(%)——只在该序列自己的真实观测上数。"""
+    """统计序列中恰好等于 0 的观测占比。
+
+    参数：
+        x: 收益序列（%）。
+
+    返回：
+        (n, z) 二元组。n 为去掉 NaN 后的观测数（int）；z 为零收益占 n 的百分比（float）。
+        序列全为空时返回 (0, nan)。
+
+    备注：
+        只在各序列自身的真实观测上计数，不补、不插值。三个候选口径的 n 本来就不同，
+        补齐到同一长度会把「零收益多」和「样本期长」混成一个数。
+    """
     v = x.dropna()
     if len(v) == 0:
         return 0, float("nan")
@@ -49,7 +57,26 @@ def zshare(x: pd.Series) -> tuple[int, float]:
 
 def daily_ols(price: pd.Series, d5y: pd.Series, d10y: pd.Series,
               lag: int = 1) -> dict:
-    """日度利差剥离：etf_ret(t)=α+β5·Δy5(t-1)+β10·Δy10(t-1)+ε。"""
+    """用滞后利率变动对日度收益做 OLS，剥离利率面并取残差作利差代理。
+
+    回归式：etf_ret(t) = α + β5·Δy5(t-lag) + β10·Δy10(t-lag) + ε。
+
+    参数：
+        price: 价格或净值序列（USD），索引为交易日。
+        d5y: 5 年期收益率的日度差分（bp）。
+        d10y: 10 年期收益率的日度差分（bp）。
+        lag: 两个利率因子的滞后阶数。价格口径取 1（美股 T 日收盘对应境内 T+1 日利率变动），
+            NAV 口径取 0（同日）。
+
+    返回：
+        dict，键为
+        r2: 回归 R²；
+        dur: 等效久期（年），取 -(β5+β10)×100；
+        n: 回归样本数；
+        resid: 残差序列（%），即利差代理；
+        ret: 日度对数收益全序列（%），未按因子做 NaN 对齐；
+        m: statsmodels 回归结果对象。
+    """
     ret = np.log(price).diff() * 100
     l5, l10 = d5y.shift(lag), d10y.shift(lag)
     X = sm.add_constant(pd.DataFrame({"b5": l5, "b10": l10}))
@@ -61,8 +88,21 @@ def daily_ols(price: pd.Series, d5y: pd.Series, d10y: pd.Series,
 
 
 def weekly_ols(price: pd.Series, y5l: pd.Series, y10l: pd.Series) -> dict:
-    """周度利差剥离（W-FRI 周末取值；同周 Δy，日度 T+1 错位在周度桶内可忽略）。
-    传收益率水平序列 y5l/y10l。"""
+    """先按 W-FRI 取周末值，再对周度收益做利率剥离 OLS。
+
+    参数：
+        price: 价格或净值序列（USD），日度；内部按 W-FRI 重采样取每周最后一个值。
+        y5l: 5 年期收益率水平序列（%），差分由函数内部完成。
+        y10l: 10 年期收益率水平序列（%），差分由函数内部完成。
+
+    返回：
+        dict，键同 daily_ols（r2 / dur / n / resid / ret / m）。ret（周度对数收益，%）与
+        resid（周度残差，%）都落在 W-FRI 的周度索引上；dur 同样取 -(β5+β10)×100。
+
+    备注：
+        利率用同周 Δy，不做滞后。日度口径里 T+1 的错位在一周的时间桶内已被吸收，
+        周度再错位一周反而会把当周的价格变动配到下周的利率上。
+    """
     p = price.resample("W-FRI").last()
     r = np.log(p).diff() * 100
     dy5 = y5l.resample("W-FRI").last().diff() * 100.0
@@ -76,9 +116,23 @@ def weekly_ols(price: pd.Series, y5l: pd.Series, y10l: pd.Series) -> dict:
 
 
 def oas_check(resid, oas_bp, mode: str, oas_lag: int = 1):
-    """利差代理(残差, %) vs ΔOAS（重叠窗 2023-09+），按口径选：
-    price 日度 → ΔOAS 滞后一日（价格=前一日美股）；NAV 日度 → 同日（lag=0）；
-    weekly → 同周本地差分。"""
+    """把利差代理残差与 ΔOAS 对齐，算相关系数与方向命中率。
+
+    参数：
+        resid: 利差剥离得到的残差序列（%）。传 None 时直接返回空 dict。
+        oas_bp: OAS 水平序列（bp）。
+        mode: 取 "daily" 时 ΔOAS 按日差分并滞后 oas_lag 日；取其它值（调用处传 "weekly"）
+            时按 %G-%V 周标签取周内最后一个值再做周间差分，并重排回原索引。
+        oas_lag: 日度口径下 ΔOAS 的滞后阶数。价格口径传 1（收盘价是前一日美股），
+            NAV 口径传 0（同日）。周度口径不使用该参数。
+
+    返回：
+        dict，键为 rho（残差与 ΔOAS 的相关系数）、hit（两者符号相反的比例，%）、
+        n_oas（对齐后的重叠观测数）。resid 为 None，或对齐后不足 30 个观测时，返回空 dict {}。
+
+    备注：
+        OAS 序列自 2023-09-05 起，实际重叠窗口取决于 resid 与之的交集，本函数不另行截窗。
+    """
     if resid is None:
         return {}
     if mode == "daily":
@@ -97,10 +151,36 @@ def oas_check(resid, oas_bp, mode: str, oas_lag: int = 1):
 
 
 def ann_vol(ret: pd.Series, per_year: float) -> float:
+    """把单期收益标准差折算成年化波动率。
+
+    参数：
+        ret: 收益序列（%），日度或周度均可。
+        per_year: 年化因子，日度取 252，周度取 52。
+
+    返回：
+        年化波动率（%），等于样本标准差（ddof=1）乘以 per_year 的平方根。
+    """
     return float(ret.std() * np.sqrt(per_year))
 
 
 def main() -> None:
+    """跑三条出路与两种频率的对照实验，输出方案对照表与三联图。
+
+    脚本契约：
+        消费：clean_data/treasury_yield_curve_clean.csv（5 Yr / 10 Yr 收益率水平）、
+              clean_data/benchmark_9141HK_clean.csv（Adj Close）、
+              clean_data/nav_9141HK_clean.csv（nav_usd）、
+              clean_data/fred_BAMLEMIBHGCRPIOAS_clean.csv（OAS 水平，自 2023-09-05 起）。
+        产出：factors/staleness_remedy_comparison.csv，六个方案各一行（D1 价格、D2 官方 NAV、
+              D3 真久期修正、W1 价格周度、W2 NAV 周度），列含 n、零收益占比%、年化波动%、
+              1 日σ%、1 日 99% 正态 VaR%、利率剥离 R²、等效久期(年)、OAS-ρ、OAS 命中%、备注；
+              figures/staleness_remedy.png，三联图（NAV 与价格归一净值、日收益量级分布、
+              周度滚窗年化波动对照）。
+        断言/边界：无硬断言。日度与周度方案的年化 σ 统一除以 √252 折成 1 日口径再比较，
+              年化因子分别取 252 与 52。D3 是构造序列而非真实观测（零收益日按利率面补，
+              变动日保留原值），其残差传 None，故 OAS 两列留空；因子法 σ 由利率日波动与
+              变动日残差合成，数值偏高，表里已注明仅供参考。周度方案的 OAS 对齐用同周本地差分。
+    """
     def c(n): return pd.read_csv(CLEAN / n, parse_dates=["date"]).set_index("date")
     tsy = c("treasury_yield_curve_clean.csv")
     etf = c("benchmark_9141HK_clean.csv")
@@ -114,7 +194,7 @@ def main() -> None:
     d10y = y10l.diff() * 100.0
     px9141, pxnav = etf["Adj Close"], nav["nav_usd"]
 
-    # ---------- 候选日度序列 ----------
+    # ---- 候选日度序列 ----
     ret9141 = np.log(px9141).diff() * 100
     retnav = np.log(pxnav).diff() * 100
 
@@ -133,11 +213,11 @@ def main() -> None:
     sig_spread_d = spread_active.std()                # 利差日波动(%/日,变动日)
     sig_model_d = float(np.sqrt(sig_rate_d**2 + sig_spread_d**2))
 
-    # ---------- 周度序列（价格 & NAV 都做，便于对照） ----------
+    # ---- 周度序列（价格 & NAV 都做，便于对照） ----
     wo9141 = weekly_ols(px9141, y5l, y10l)
     wonav = weekly_ols(pxnav, y5l, y10l)
 
-    # ---------- 指标表 ----------
+    # ---- 指标表 ----
     rows = []
     def add(name, rets, dur_r2, resid, per_year, mode, oas_lag, extra=""):
         n0, z = zshare(rets)
@@ -157,7 +237,7 @@ def main() -> None:
             rows[-1]["OAS-ρ"] = round(oc["rho"], 3)
             rows[-1]["OAS命中%"] = round(oc["hit"], 1)
 
-    # 日度：价格 / NAV / 真实久期修正（NAV 与美股同日→lag=0；价格滞后 1 日→lag=1）
+    # 日度：价格 / NAV / 真实久期修正（NAV 与美股同日用 lag=0，价格滞后 1 日用 lag=1）
     d9141 = daily_ols(px9141, d5y, d10y, lag=1)
     add("D1 价格9141(现状)", ret9141, d9141, d9141["resid"], 252, "daily", 1,
         "基准：~63%零收益")
@@ -180,7 +260,7 @@ def main() -> None:
     df.to_csv(FACT / "staleness_remedy_comparison.csv", index=False,
               encoding="utf-8-sig")
 
-    # NAV vs 价格日度收益一致度（对官方 NAV 是否可作为 9141 的日度无偏代理）
+    # NAV 与价格的日度收益一致度：验「官方 NAV 可否当作 9141 的日度无偏代理」
     j = pd.concat([ret9141.rename("price"), retnav.rename("nav")], axis=1)
     both = j.dropna()
     bothm = both[(both["price"] != 0) & (both["nav"] != 0)]
@@ -193,7 +273,7 @@ def main() -> None:
     print(f"因子法(真久期) σ_model={sig_model_d:.4f}%/日 → 年化 {sig_model_d*np.sqrt(252):.2f}% ；"
           f"利率部分贡献={sig_rate_d:.3f}%/日、利差={sig_spread_d:.3f}%/日")
 
-    # ---------- 图 ----------
+    # ---- 图 ----
     fig, axs = plt.subplots(3, 1, figsize=(12, 10))
     # 1) 归一化净值：NAV vs 价格 收盘(周度平滑显示趋势一致)
     base = pd.concat([pxnav.rename("nav"), px9141.rename("px")], axis=1)

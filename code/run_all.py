@@ -1,13 +1,12 @@
 """一键运行入口：把四个阶段的全部脚本串成一条命令。
 
-此前复现全链路需要按 README 手敲 12 条命令、且**必须按序**（脚本之间靠 CSV 传参，
-顺序错了会静默用到上一次的旧产物）。本脚本把那 12 条固化成一个有依赖顺序的清单，
-并区分两类失败：
+此前复现全链路需要按 README 手敲 12 条命令，且必须按序——脚本之间靠 CSV 传参，顺序错了会
+静默用到上一次的旧产物。本脚本把那 12 条固化成一个有依赖顺序的清单，并区分两类失败：
 
-  * **取数类**（`download_*`，需联网）失败 → 记警告并继续。因子与结果都可从
-    已归档的 `raw_data/` 重建，取数失败不该阻断离线复现。
-  * **计算类**失败 → 立即终止并返回非零码。带着缺料往下跑会污染后续所有产物，
-    且这种污染不会自我暴露——宁可停在这里。
+  * 取数类（`download_*`，需联网）失败：记警告并继续。因子与结果都可从已归档的
+    `raw_data/` 重建，取数失败不该阻断离线复现。
+  * 计算类失败：立即终止并返回非零码。带着缺料往下跑会污染后续所有产物，且这种
+    污染不会自我暴露。
 
 用法：
     python code/run_all.py                       # 跑 phase1+2+3（默认跳过取数）
@@ -16,12 +15,8 @@
     python code/run_all.py --check               # 只做产物对账，不重跑测算
     python code/run_all.py --list                # 列出执行清单后退出
 
-依赖顺序（改本表前先确认上下游，`code/check_outputs.py` 会核对产物形状）：
-    clean_data → outlier_detect → adjudicate_outliers
-    → build_factors_nav → build_tr_factors → prep_phase2
-    → var_parametric → var_historical → var_backtest
-    → recommend_baseline → verify_delta_transmission
-    → stress_scenarios → stress_impact → stress_robustness
+依赖顺序的可读版本见 `docs/tool_usage.md` §3「分阶段运行」；本文件下方的 `STEPS` 是该顺序的
+唯一可执行来源，`code/check_outputs.py` 会核对每步的产物形状。
 """
 from __future__ import annotations
 
@@ -72,10 +67,23 @@ PHASE_NAMES = {
 
 
 def banner(t: str) -> None:
+    """打印一条上下带分隔线的标题。
+
+    参数：
+        t: 标题文本。
+
+    返回：
+        None。
+    """
     print(f"\n{'=' * 78}\n{t}\n{'=' * 78}")
 
 
 def list_steps() -> None:
+    """按阶段分组打印 STEPS 的执行清单，不执行任何脚本。
+
+    返回：
+        None。
+    """
     banner("执行清单")
     cur = None
     for i, (phase, script, kind) in enumerate(STEPS, 1):
@@ -87,6 +95,17 @@ def list_steps() -> None:
 
 
 def run_step(script: str, kind: str, quiet: bool) -> tuple[bool, float]:
+    """以子进程运行一个脚本，返回它是否成功以及耗时。
+
+    参数：
+        script: 脚本名，不含目录与 .py 后缀，如 "stress_impact"。
+        kind: 类别，"download" 或 "compute"。当前函数体未使用它——
+            失败是否中断由调用方按类别判断；保留该参数是为与 STEPS 的三元组对齐。
+        quiet: True 时捕获输出、只在失败时打印末尾 2000 字符；False 时直接透传。
+
+    返回：
+        (ok, 秒数) 二元组。脚本文件不存在时返回 (False, 0.0)，不抛异常。
+    """
     path = CODE / f"{script}.py"
     if not path.exists():
         print(f"  !! 脚本不存在：{path}")
@@ -106,6 +125,15 @@ def run_step(script: str, kind: str, quiet: bool) -> tuple[bool, float]:
 
 
 def main() -> int:
+    """一键运行入口：解析参数、按依赖顺序跑脚本、跑完做产物对账。
+
+    参数：
+        从 sys.argv 读取，支持 --only / --download / --check / --quiet / --list。
+
+    返回：
+        进程退出码。0 全部成功且对账一致；1 计算类脚本失败或产物对账未通过；
+        2 阶段名非法。
+    """
     ap = argparse.ArgumentParser(
         description="中资投资级美元债风险计量与压力测试预研工具 · 一键运行入口",
         formatter_class=argparse.RawDescriptionHelpFormatter,

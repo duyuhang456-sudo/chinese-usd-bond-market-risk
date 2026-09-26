@@ -1,13 +1,11 @@
-"""
-9/11 描述性统计 + 质量复核（第一阶段收口 · 默认 NAV 口径）
+"""9/11 描述性统计 + 质量复核（第一阶段收口 · 默认 NAV 口径）
 
-输入：factors/factor_table_nav.csv（正式因子表，见 docs/factors.md 第六节 / staleness_remedy.md）
-产出：1) 分布特征表（均值/标准差/偏度/峰度/正态性）；2) 直方图 & QQ 图；
-      3) 组合累计收益拆解图（总收益 = 利率贡献 + 利差代理）；4) 质量复核打印（完整率/对齐/标注可追溯）。
-
-用法： ./.venv/bin/python code/descriptive_stats.py
-输出： factors/descriptive_stats_nav.csv、figures/descriptive_hist_qq_nav.png、
-       figures/portfolio_return_decomp_nav.png（QA 打印至控制台，结论汇入《数据说明文档》）
+消费：factors/factor_table_nav.csv（正式因子表，见 docs/factors.md 第六节）
+产出：factors/descriptive_stats_nav.csv、figures/descriptive_hist_qq_nav.png、
+      figures/portfolio_return_decomp_nav.png；质量复核结论打印至控制台后汇入《数据说明文档》
+口径：分布特征含均值 / 标准差 / 偏度 / 峰度 / 正态性；组合累计收益按「总收益 = 利率贡献 +
+      利差代理」拆解。图只画核心序列，画太多反而稀释信息。
+用法：./.venv/bin/python code/descriptive_stats.py
 """
 from __future__ import annotations
 
@@ -26,7 +24,7 @@ from common import CLEAN, FACT, FIG, ensure_dirs
 
 ensure_dirs()
 
-# (列名, 中文名, 是否收益类(→年化σ), 量纲, 窗口说明)
+# (列名, 中文名, 是否收益类（收益类才年化 σ）, 量纲, 窗口说明)
 SERIES = [
     ("etf_ret_pct",          "组合收益 (NAV, %)",    True,  "%/日", "2021-08 起"),
     ("etf_spread_proxy_pct", "信用利差代理 (残差, %)",
@@ -43,6 +41,22 @@ FIG_Q = [("etf_ret_pct", "组合收益(NAV)"), ("etf_spread_proxy_pct", "利差�
 
 
 def main() -> None:
+    """对 NAV 口径因子表出分布特征表、直方图/QQ 图与收益拆解图，并打印质量复核。
+
+    脚本契约：
+        消费：factors/factor_table_nav.csv、clean_data/master_calendar.csv。
+        产出：factors/descriptive_stats_nav.csv（每行一个因子，列为窗口、n、
+            日均、日标准差、年化σ、偏度、超额峰度、JB-p、min/max、>0 与 =0 占比）、
+            figures/descriptive_hist_qq_nav.png、
+            figures/portfolio_return_decomp_nav.png；质量复核只打印到控制台。
+        断言/边界：无 assert。模块常量 SERIES 决定统计哪些列、量纲与窗口标签，
+            其中窗口标签（如 doas_bp 标为 2023-09 起）是手写字符串，不随数据实际
+            起点变化；非空检查只覆盖 6 个因子列并要求全表非空，oas_bp/doas_bp 允许
+            前段为 NaN；与主日历比对日期差集，有差集时打印 "!!" 并列出日期，但不中断。
+
+    返回：
+        None。
+    """
     F = pd.read_csv(FACT / "factor_table_nav.csv", parse_dates=["date"]).set_index("date")
     F = F[F.index.notna()]
     print("=" * 78)
@@ -117,7 +131,7 @@ def main() -> None:
     fig2.savefig(FIG / "portfolio_return_decomp_nav.png", dpi=150)
     print("[已写] figures/portfolio_return_decomp_nav.png")
 
-    # ---- 5) 质量复核（供《数据说明文档》证据链，控制台即可）----
+    # ---- 5) 质量复核（供《数据说明文档》证据链，控制台即可） ----
     print("\n" + "=" * 78 + "\n质量复核")
     for c in ["d5y_bp", "d10y_bp", "fx_ret_pct", "etf_ret_pct",
               "etf_rate_attrib_pct", "etf_spread_proxy_pct"]:

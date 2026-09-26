@@ -1,13 +1,11 @@
-"""
-异常逐条判定（第 1 阶段 · 9/9 下午）
+"""异常逐条判定（阶段一 9/9 下午）
 
-把 outlier_candidates.csv 的每条候选与《风险事件参考时间线》做窗口匹配：
-  - 事件日期在 [候选日-3, 候选日+3] 内命中 → 判定「真实冲击」，处理「保留」，附事件
-  - 未命中任何事件 → 判定「存疑（无事件支撑）」，处理「仅标注、不改数」（用户决策口径）
-再手工复核少量特殊日期（9141 vs 3141 反向等），在表中加备注列。
-
-用法： ./.venv/bin/python code/adjudicate_outliers.py
-输出： clean_data/outlier_judgment.csv
+消费：clean_data/outlier_candidates.csv、events/risk_events_timeline.csv（人工维护）
+产出：clean_data/outlier_judgment.csv
+口径：候选日前后各 3 日内命中事件 → 判「真实冲击」，处理「保留」并附事件名；未命中任何事件
+      → 判「存疑（无事件支撑）」，处理「仅标注、不改数」。少量特殊日期（9141 与 3141 反向
+      等）手工在备注列复核。
+用法：./.venv/bin/python code/adjudicate_outliers.py
 """
 from __future__ import annotations
 
@@ -29,6 +27,19 @@ SPECIAL = {
 
 
 def main() -> None:
+    """把候选异常逐条与风险事件时间线做窗口匹配，给出判定与处理方式。
+
+    脚本契约：
+        消费：clean_data/outlier_candidates.csv、events/risk_events_timeline.csv。
+        产出：clean_data/outlier_judgment.csv（含 verdict / handling / 命中事件 /
+             gap_days / note / special 列）。
+        判定规则：候选日前后 3 个自然日内命中任一事件，判「真实冲击」、处理「保留」；
+            未命中判「存疑(无事件支撑)」、处理「仅标注,不改数」。SPECIAL 里的少数日期
+            附人工复核备注（9141 与 3141 反向等情形）。
+
+    返回：
+        None。
+    """
     cand = pd.read_csv(CLEAN / "outlier_candidates.csv", dtype={"date": str})
     ev = pd.read_csv(EVENTS_CSV, dtype={"date": str})
     ev["d"] = pd.to_datetime(ev["date"])
@@ -40,7 +51,7 @@ def main() -> None:
                   (evd["d"] <= d + pd.Timedelta(days=3))]
         if len(win) == 0:
             return None
-        # 取距离最近；平局取市场字段与序列类别最贴合者由下精简为最近即可
+        # 窗口内取距离最近的事件；gap 相同时按日期先后取一条，不设额外的平局裁决规则
         win = win.copy()
         win["_gap"] = (win["d"] - d).dt.days.abs()
         win = win.sort_values(["_gap", "d"])

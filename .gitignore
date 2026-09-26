@@ -19,3 +19,6 @@ raw_data/mchb_MechanicsBancorp_WRONG_弃用.csv
 # 内部复盘版（仅本地留存，不入库；对外交付只用 week*_report_formal.md）
 docs/week*_intern_review.md
 docs/week*_revision_intern.md
+
+# AST 守卫的基线快照（本地校验用，随代码状态变化，不入库）
+tools/.ast_baseline.json

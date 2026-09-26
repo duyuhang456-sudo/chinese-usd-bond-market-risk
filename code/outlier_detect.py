@@ -1,23 +1,15 @@
-"""
-异常值识别（第 1 阶段 · 9/9 数据清洗② 上午部分）
+"""异常值识别（阶段一 9/9 数据清洗② 上午部分）
 
-思路（对应计划：滚动/分段 3σ）：
-  对每条「日变化」序列做多信号 3σ 识别，任一命中即记为疑似异常候选：
-    - global z      ：相对全样本均值/标准差
-    - roll60 z      ：相对最近 60 个交易日（trailing）均值/标准差（regime-relative）
-    - roll20 z      ：相对最近 20 个交易日（trailing）——捕捉相对近期平静期的突刺
-    - pre60 z       ：相对「前 60 日」基线（std 只用到 t-1，不含当日）——
-                      冲击初期的波动率还没有抬升，用它能抓住事件首日
-  另有绝对下限护栏，避免收益率类序列在波动极低期被微噪声过度触发。
-
-  序列口径（单位统一）：
-    美债 5Y/10Y   ：日变化 ×100 = bp
-    9141.HK       ：Adj Close 对数收益 %（对齐到美股交易日，港股休市填充日≈0% 不算异常）
-    DEXCHUS       ：对数收益 %
-    EM IG OAS     ：日变化 ×100 = bp（仅 2023-09 起）
-
-用法： ./.venv/bin/python code/outlier_detect.py
-输出： clean_data/outlier_candidates.csv
+消费：clean_data/ 下的 treasury_yield_curve_clean.csv、benchmark_9141HK_clean.csv、
+      fred_DEXCHUS_clean.csv、fred_BAMLEMIBHGCRPIOAS_clean.csv
+产出：clean_data/outlier_candidates.csv
+口径：对每条「日变化」序列做多信号 3σ 识别，任一命中即记为候选：global z（全样本）、
+      roll60 z（最近 60 交易日）、roll20 z（最近 20 交易日，抓相对平静期的突刺）、pre60 z
+      （前 60 日基线，std 只用到 t−1，冲击初期波动率尚未抬升，用它能抓住事件首日）。另有
+      绝对下限护栏，避免低波动期被微噪声过度触发。单位统一：美债 5Y/10Y 与 EM IG OAS 取
+      日变化 ×100 = bp（OAS 仅 2023-09 起）；9141.HK 与 DEXCHUS 取对数收益 %，港股休市的
+      填充日收益 ≈0%，不会被记成异常。
+用法：./.venv/bin/python code/outlier_detect.py
 """
 from __future__ import annotations
 
@@ -31,7 +23,21 @@ ensure_dirs()
 
 def detect(series: pd.Series, name: str, kind: str,
            floors: dict[str, float]) -> pd.DataFrame:
-    """对一条已对齐的日度序列做日变化 + 多信号 3σ 识别。"""
+    """对一条已对齐的日度序列做日变化，再用四个 3σ 信号识别疑似异常。
+
+    参数：
+        series: 已对齐到主日历的日度序列，索引为日期。
+        name: 序列名（d5y_bp / d10y_bp / ETF_ret_pct / FX_ret_pct / dOAS_bp），
+            同时用作下限护栏的查表键。
+        kind: 日变化的算法。"logret" 取对数收益 %，"diffbp" 取一阶差分 ×100（bp），
+            其余取一阶差分原单位。
+        floors: {序列名: 绝对下限}。日变化绝对值低于下限的即使 z>3 也不算候选，
+            用于滤掉波动极低期的微噪声（此时标准差很小，微小变动也会 z>3）。
+
+    返回：
+        候选异常表，列为 series / date(YYYY-MM-DD) / value / 四个 z 值 /
+        hit（命中的信号名，用 + 连接）。无候选或序列短于 40 个观测时返回空表。
+    """
     s = pd.to_numeric(series).dropna().sort_index()
     if kind == "logret":                     # 收益类：对数收益 %
         chg = np.log(s).diff() * 100.0
@@ -71,6 +77,17 @@ def detect(series: pd.Series, name: str, kind: str,
 
 
 def main() -> None:
+    """对五条日变化序列跑多信号 3σ 识别，输出候选异常清单。
+
+    脚本契约：
+        消费：clean_data/ 下的 treasury、9141.HK、DEXCHUS、OAS 四张清洗表。
+        产出：clean_data/outlier_candidates.csv（含四个 z 值与命中信号列）。
+        边界：本步只「识别候选」，不下判定；哪条候选真算异常由
+            adjudicate_outliers.py 逐条裁定。
+
+    返回：
+        None。
+    """
     C = lambda n: pd.read_csv(CLEAN / n, parse_dates=["date"]).set_index("date")
 
     tsy = C("treasury_yield_curve_clean.csv")
@@ -78,7 +95,7 @@ def main() -> None:
     fx = C("fred_DEXCHUS_clean.csv")
     oas = C("fred_BAMLEMIBHGCRPIOAS_clean.csv")
 
-    floors = {   # 绝对下限护栏：低于该量级即便 z>3 也过滤（微噪声）
+    floors = {   # 绝对下限护栏：低于该量级的波动属微噪声，即便 z>3 也不记候选
         "d5y_bp": 8.0, "d10y_bp": 8.0,        # 8bp 起
         "ETF_ret_pct": 0.5,                    # 0.5% 起
         "FX_ret_pct": 0.45,                    # 0.45% 起
