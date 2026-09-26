@@ -1,10 +1,12 @@
-"""一键下载全部数据源（阶段一 第 1 天）
+"""一键下载全部数据源（阶段一 第 1 天 · 9/7）
 
-消费：无（需联网）
-产出：raw_data/ 下的 FRED 序列、美债收益率曲线、9141.HK 行情
-口径：三类来源分工——FRED 取汇率 / 新兴市场 IG 利差 / 政策利率 / CPI；Treasury 取美债收益率
-      曲线（无风险利率基准）；Benchmark 取正式标的 9141.HK（中资/亚洲美元投资级债代理）。
-      各子脚本只做「下载并原样归档」，日期仅做 ISO 化与窗口截取，不清洗。
+消费：无（要联网）
+产出：raw_data/ 下的 FRED 各序列、美债收益率曲线、9141.HK 行情
+口径：三个来源各管一块——FRED 出汇率 / 新兴市场 IG 利差 / 政策利率 / CPI；Treasury 出
+      美债收益率曲线，当无风险利率基准用；Benchmark 出正式标的 9141.HK，拿来当中资/亚洲
+      美元投资级债的代理。三个子脚本都只负责「下载并原样归档」，日期只做 ISO 化和窗口
+      截取，不清洗。
+边界：9141.HK 的日度 NAV 不在这里，那条由 download_nav.py 单独跑。
 用法：在仓库根目录执行 ./.venv/bin/python code/download_all.py
 """
 from __future__ import annotations
@@ -17,17 +19,12 @@ import download_treasury
 
 
 def main() -> None:
-    """依次下载三类数据源并打印汇总，是阶段一的取数入口。
+    """挨个下载三类数据源，最后打一份汇总，是阶段一的取数入口。
 
-    脚本契约：
-        消费：FRED / treasury.gov / Yahoo 三个外部接口（均需联网）。
-        产出：raw_data/ 下的 fred_*.csv、treasury_yield_curve.csv、
-            benchmark_9141HK.csv。
-        边界：标的下载失败只打印跳过、不中断——另外两类数据仍应落地。
-            本脚本不含 9141.HK 的日度 NAV，那条由 download_nav.py 单独跑。
-
-    返回：
-        None。
+    从 FRED / treasury.gov / Yahoo 三个外部接口拿数（都要联网），产出 raw_data/ 下的
+    fred_*.csv、treasury_yield_curve.csv 和 benchmark_9141HK.csv。
+    标的下载失败只打印一句跳过、不中断，另外两类照样落地；9141.HK 的日度 NAV 不在
+    这里，归 download_nav.py 管。
     """
     print("=" * 60)
     print("1/3  下载 FRED 系列（汇率/利差/政策利率/CPI）")
@@ -48,7 +45,7 @@ def main() -> None:
     except RuntimeError as e:
         print(f"[BENCHMARK] 跳过：{e}")
 
-    # 汇总
+    # 下载完，打一份汇总
     print("\n" + "=" * 60)
     print("下载汇总")
     print("=" * 60)

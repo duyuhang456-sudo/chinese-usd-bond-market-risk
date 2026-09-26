@@ -1,18 +1,20 @@
-"""阶段二 Day3（9/16）历史模拟法 VaR：经典 HS（窗宽 250/500/750）+ Filtered-HS（EWMA / GARCH 双滤波），双口径
+"""历史模拟法 VaR：经典 HS（窗宽 250/500/750）+ Filtered-HS（EWMA / GARCH 两种滤波），
+主次两个口径都做（阶段二 Day3 · 9/16）
 
 消费：factors/factor_table_nav_tr.csv（复权主口径 etf_ret_tr_pct / 人民币次口径 etf_ret_rmb_pct）；
-      results/var_parametric.csv（9/15 产物的 sig_ewma / sig_garch 列）
+      results/var_parametric.csv（9/15 产物的 sig_ewma / sig_garch 两列）
 产出：results/var_historical.csv
       figures/var_hs_vs_parametric.png / var_hs_quantile_path.png / var_fhs_compare.png
-口径：1 日持有期；95% / 99%；VaR 存正值（损失）；μ=0 且不去均值（与 spec §1 参数法口径一致）；
-      窗内经验分位用线性插值；预测窗严格取 [t−W, t−1]。滤波用的 σ 列是 9/15 的扩展窗逐日一步
-      向前预测（只用 ≤ t−1 信息），直接复用即无前视。
-边界：W=250/500/750 → 有效 1023/773/523 日。FHS 两版 σ 自样本外首日起才有定义，窗满需再
-      250 日，故各 773 日；一律用成熟种子 seed_win=250，不用序列首日播种（该方案会使
-      FHS99 虚高约 85%，量化过程见 spec §6 的 9/16 补记 L168-171），代价是少 250 个
-      预测日。次口径汇率源尾 5 日未发布：M2 因窗端点落入 NaN 段缺 4 日，M2f 另因 σ_t 本身
-      为 NaN 缺 5 日。
-用法：./.venv/bin/python code/var_historical.py（须先跑 code/var_parametric.py）
+口径：持有期 1 日，置信度 95% / 99%，VaR 存正值（也就是损失的数字），μ 取 0、不去均值（和
+      spec §1 的参数法口径一致）；窗内的经验分位用线性插值；预测窗严格取 [t−W, t−1]。滤波用
+      的 σ 列是 9/15 那套扩展窗逐日一步向前预测（只用 t−1 及更早的信息），直接拿来用就没有
+      前视。
+边界：W=250/500/750 对应有效 1023/773/523 天。FHS 两版的 σ 从样本外第一天起才有定义，窗再
+      攒满又要 250 天，所以各 773 天；一律用成熟种子 seed_win=250，不用序列头一天播种（那个
+      做法会让 FHS99 虚高约 85%，量化过程见 spec §6 的 9/16 补记），代价是少 250 个预测日。
+      次口径的汇率源最后 5 天没发布：M2 因为窗端点落进 NaN 段缺 4 天，M2f 还因为 σ_t 本身是
+      NaN 再缺一天，一共 5 天。
+用法：./.venv/bin/python code/var_historical.py（得先跑 code/var_parametric.py）
 """
 from __future__ import annotations
 
@@ -33,67 +35,53 @@ from var_common import (WIN, LAM, C_M1, C_GARCH, C_ALT, C_GREY, INK2,
 
 ensure_dirs()
 
-WS = (250, 500, 750)            # 窗宽稳健性
+WS = (250, 500, 750)            # 三个窗宽，用来看结论稳不稳
 CS = ("95", "99")
 Q = {"95": 0.05, "99": 0.01}
-# 窗宽是有序维度，用同色相深浅表示，不占用第二色相（蓝/橙留给「模型」维度，避免串义）
+# 窗宽是有大小顺序的，就用同一个色相的深浅来表示，不再占用第二个色相（蓝和橙留给「模型」
+# 这个维度，免得两套意思串在一起）
 C_W = {250: C_ALT, 500: "#6fcbac", 750: "#b3e0cd"}
-# FHS 与经典 HS 同族，用同色相、以线型区分滤波方式
+# FHS 和经典 HS 是一家人，用同一个色相，靠线型区分是哪种滤波
 LS_HS, LS_E, LS_G = "-", "--", ":"
 
 
 def nval(s: pd.Series) -> int:
-    """非 NaN 计数。
-
-    参数：
-        s: 任意 Series。
-
-    返回：
-        int，s 中非 NaN 的元素个数。
-    """
+    """数一个 Series 里非 NaN 的个数。s 是任意 Series，返回整数。"""
     return int(s.notna().sum())
 
 
 def span(s: pd.Series) -> tuple[str, str]:
-    """首个与末个有效日的日期字符串。
+    """挑出一个 Series 第一个和最后一个有值的日期，给成 "YYYY-MM-DD" 的字符串。
 
-    参数：
-        s: 带 DatetimeIndex 的 Series。
-
-    返回：
-        (首个有效日, 末个有效日) 二元组，格式 "YYYY-MM-DD"；无有效值时返回 ("—", "—")。
+    s 得是带 DatetimeIndex 的 Series。返回 (首个有效日, 末个有效日) 这个二元组；一个有效值
+    都没有的时候返回 ("—", "—")。
     """
     d = s.dropna()
     return ("—", "—") if d.empty else (str(d.index[0].date()), str(d.index[-1].date()))
 
 
 def acf1(x: pd.Series) -> float:
-    """一阶自相关。
-
-    参数：
-        x: 数值 Series。
-
-    返回：
-        float，去 NaN 后按位置计算的一阶自相关系数。
-    """
+    """一阶自相关。x 是数值 Series，返回去掉 NaN 之后按位置算出来的一阶自相关系数。"""
     return float(x.dropna().autocorr(lag=1))
 
 
 def main() -> None:
-    """历史模拟法 VaR 主流程（其余口径说明见模块 docstring）。
+    """历史模拟法 VaR 的主流程（其余口径说明见模块开头的 docstring）。
 
-    脚本契约：
-        消费：factors/factor_table_nav_tr.csv（复权主口径 / 人民币次口径收益）；
-            results/var_parametric.csv（9/15 产物，取其中 sig_ewma / sig_garch 作滤波 σ）；
-            results/garch_refit_trace_rmb.csv（次口径 GARCH 边界解区段）；
-            clean_data/outlier_judgment.csv（阶段一存疑日，存在时才读）。
-        产出：results/var_historical.csv（样本外逐日：收益、经典 HS 三窗 × 两置信度、FHS 两滤波 ×
-            两置信度，主口径与次口径分列）；figures/var_hs_vs_parametric.png、
-            figures/var_hs_quantile_path.png、figures/var_fhs_compare.png。
-        断言/边界：样本外长度必须等于 len(F) − WIN，与 9/15 一致；VaR 一律存正值且 99% ≥ 95%；
-            W=250 在样本外首日即应有值；随机抽 3 个 t 与手工 np.quantile(r[t−250:t], 0.01) 精确比对
-            以防前视；违规判定与手写循环比对；次口径尾部缺口按 M2 缺 4 日、M2f 缺 5 日的机制分别说明。
-            缺 results/var_parametric.csv 时直接 SystemExit，须先跑 code/var_parametric.py。
+    吃进来的：factors/factor_table_nav_tr.csv（复权主口径 / 人民币次口径的收益）；
+    results/var_parametric.csv（9/15 的产物，取里面 sig_ewma / sig_garch 当滤波用的 σ）；
+    results/garch_refit_trace_rmb.csv（次口径 GARCH 的边界解区段）；
+    clean_data/outlier_judgment.csv（阶段一的存疑日，文件在才读）。
+
+    吐出去的：results/var_historical.csv（样本外逐日：收益、经典 HS 三个窗 × 两个置信度、
+    FHS 两种滤波 × 两个置信度，主口径和次口径分列）；figures/var_hs_vs_parametric.png、
+    figures/var_hs_quantile_path.png、figures/var_fhs_compare.png。
+
+    几道硬护栏：样本外长度必须等于 len(F) − WIN，和 9/15 保持一致；VaR 一律存正值，而且 99%
+    的不能小于 95% 的；W=250 在样本外第一天就该有值；随机抽 3 个 t，和手工
+    np.quantile(r[t−250:t], 0.01) 精确对一遍，防前视；违规判定跟手写循环对一遍；次口径的
+    尾部缺口按 M2 缺 4 天、M2f 缺 5 天各自的道理分别讲清楚。
+    缺 results/var_parametric.csv 就直接 SystemExit，必须先跑 code/var_parametric.py。
     """
     vp_path = RES / "var_parametric.csv"
     if not vp_path.exists():
@@ -125,7 +113,7 @@ def main() -> None:
             oos[f"hs{w}_var_{c}"] = hs_var(r_main, w, c).reindex(idx)
             oos[f"rmb_hs{w}_var_{c}"] = hs_var(r_rmb, w, c).reindex(idx)
 
-    # ---- M2f Filtered-HS（两版滤波，σ 取自 9/15，同为一步向前、无前视） ----
+    # ---- M2f Filtered-HS（两种滤波，σ 取自 9/15，同样是一步向前，没有前视） ----
     oos["fhs_sig_e"], oos["fhs_sig_g"] = VP["sig_ewma"], VP["sig_garch"]
     oos["rmb_fhs_sig_e"], oos["rmb_fhs_sig_g"] = VP["rmb_sig_ewma"], VP["rmb_sig_garch"]
     for c in CS:
@@ -134,8 +122,8 @@ def main() -> None:
         oos[f"rmb_fhs_e_var_{c}"] = hs_var_filtered(oos["ret_rmb_pct"], oos["rmb_fhs_sig_e"], WIN, c)
         oos[f"rmb_fhs_g_var_{c}"] = hs_var_filtered(oos["ret_rmb_pct"], oos["rmb_fhs_sig_g"], WIN, c)
 
-    # 符号约定护栏：VaR 一律存正值。若误传负号，违规判定会把每天都判成违规，看起来只是
-    # 「失败率 100%」，容易当成模型问题而不是符号问题
+    # 符号约定的护栏：VaR 一律存正值。要是哪一步传成了负号，违规判定会把每一天都判成违规，
+    # 屏幕上只显示「失败率 100%」，很容易当成模型出了问题，而不是符号写反了
     vcols = [c for c in oos.columns if "_var_" in c]
     assert all((oos[c].dropna() >= -1e-9).all() for c in vcols), "VaR 出现负值，符号约定被破坏"
     assert all((oos[c.replace("_95", "_99")].dropna() >= oos[c].dropna() - 1e-9).all()
@@ -266,7 +254,7 @@ def main() -> None:
     print(f"            但两版滤波的失败率差异很小（均值差 "
           f"{abs(oos['fhs_e_var_99'].mean()-oos['fhs_g_var_99'].mean())/oos['fhs_e_var_99'].mean()*100:.1f}%）"
           f"→ 9/17 对比时不必把「滤波方式选择」当成重要变量。")
-    # 次口径边界解段：该段 GARCH σ 退化为常数，滤波失效
+    # 次口径的边界解段：这段 GARCH 的 σ 退化成常数，滤波等于没滤
     tr_r = pd.read_csv(RES / "garch_refit_trace_rmb.csv", parse_dates=["date"]).set_index("date")
     bad = tr_r.index[tr_r["alpha"] < 1e-4]
     if len(bad):
@@ -324,7 +312,7 @@ def main() -> None:
     assert nval(oos["hs250_var_99"]) == len(oos), "W=250 在样本外首日即应有值（窗 [0,249] 已满）"
     for w in WS:
         assert nval(oos[f"hs{w}_var_99"]) == len(oos) - max(0, w - WIN)
-    # 防前视：随机抽 3 个 t，与手工 np.quantile(r[t−250:t], 0.01) 精确比对
+    # 防前视：随机抽 3 个 t，和手工 np.quantile(r[t−250:t], 0.01) 精确对一遍
     rng = np.random.default_rng(20260916)
     picks = sorted(rng.choice(np.arange(WIN + 300, len(oos)), size=3, replace=False).tolist())
     for p in picks:
@@ -333,15 +321,16 @@ def main() -> None:
         got = float(oos["hs250_var_99"].iloc[p])
         assert abs(manual - got) < 1e-9, f"t={t_full} 前视/口径不符：{manual} vs {got}"
     print(f"        防前视抽检 3 个 t（{picks}）：手工 np.quantile(r[t−250:t], 0.01) 与输出完全一致")
-    # 违规判定与手写循环一致
+    # 违规判定再跟手写循环对一遍
     x_a, n_a, _ = count_violations(oos["ret_tr_pct"], oos["hs250_var_95"])
     d = pd.concat([oos["ret_tr_pct"].rename("r"), oos["hs250_var_95"].rename("v")], axis=1).dropna()
     x_b = int((d["r"] < -d["v"]).sum())
     assert (x_a, n_a) == (x_b, len(d)), "违规判定与手写循环不一致"
     print(f"        count_violations 与手写循环一致（HS250-95：{x_a}/{n_a}）")
-    # 次口径尾部缺口的机制不同，必须分别说明（都源自汇率源尾 5 日 NaN，但敏感点不一样）：
-    #   M2  VaR(t) 用窗 [t−W, t−1]，只要 t−1 落入 NaN 段即缺，故缺 4 日
-    #   M2f 输出 = 窗分位 × σ_t，σ_t 本身在 NaN 段为 NaN，故缺 5 日（比 M2 多 1 日）
+    # 次口径尾部这两处缺口来路不一样，得分开讲（都是汇率源最后 5 天 NaN 引起的，但卡住的
+    # 位置不同）：
+    #   M2  的 VaR(t) 用窗 [t−W, t−1]，只要 t−1 落进 NaN 段就缺，所以缺 4 天
+    #   M2f 输出 = 窗分位 × σ_t，σ_t 本身在 NaN 段就是 NaN，所以缺 5 天（比 M2 多 1 天）
     print(f"        次口径缺口（汇率源尾 {n_tail} 日 NaN，主口径完全不受影响）：")
     for tag, col in [("M2  经典 HS W=250", "rmb_hs250_var_99"),
                      ("M2f FHS-E", "rmb_fhs_e_var_99"), ("M2f FHS-G", "rmb_fhs_g_var_99")]:
@@ -370,8 +359,8 @@ def main() -> None:
             ax.margins(x=0.06)
             if icol == 0:
                 ax.set_ylabel("日收益 / VaR (%)")
-    # 边界解只存在于次口径 GARCH（主口径 0 次），故阴影只画在下排，否则读者会以为主口径
-    # 也有 133 次退化。下排两个置信度都要标：退化的 σ_t 同时影响该段两个面板的读法。
+    # 边界解只在次口径 GARCH 里出现（主口径 0 次），所以阴影只画在下排，不然读者会以为主口径
+    # 也有 133 次退化。下排两个置信度都得标，因为退化的 σ_t 把这段两个面板的读法都带上了。
     if len(bad):
         for ax in axes[1]:
             ax.axvspan(bad[0], bad[-1], color=INK2, alpha=.08, lw=0)
@@ -409,10 +398,10 @@ def main() -> None:
             ax.set_ylabel("−VaR (%)" if icol == 0 else "")
             ax.grid(alpha=.25, lw=.6)
             ax.margins(x=0.08)
-            # 半年刻度在本图宽度下会挤成「2022-072023-01」，改用年刻度（6 个标签，不重叠）
+            # 半年刻度在这个图宽下会挤成「2022-072023-01」，换成年刻度（6 个标签，不重叠）
             ax.xaxis.set_major_locator(mdates.YearLocator())
             ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    # 四个面板序列完全相同，图例提到画布顶部，避免面板内图例压住分位线
+    # 四个面板画的是同一批序列，图例提到画布顶上，免得嵌在面板里压住分位线
     h, l = axes[0, 0].get_legend_handles_labels()
     fig.legend(h, l, loc="upper center", ncol=3, fontsize=8.5, frameon=False,
                bbox_to_anchor=(0.5, 0.938))
@@ -432,7 +421,7 @@ def main() -> None:
         ax.plot(sub.index, -sub[f"{pre}hs250_var_99"], lw=1.4, color=C_ALT, ls=LS_HS, label="经典 HS(250)")
         ax.plot(sub.index, -sub[f"{pre}fhs_e_var_99"], lw=1.4, color=C_ALT, ls=LS_E, label="FHS（EWMA 滤波）")
         ax.plot(sub.index, -sub[f"{pre}fhs_g_var_99"], lw=1.4, color=C_ALT, ls=LS_G, label="FHS（GARCH 滤波）")
-        # 同上：边界解只在次口径，阴影不可画到主口径面板
+        # 同前：边界解只在次口径，阴影不能画到主口径那个面板上
         if len(bad) and i == 1:
             ax.axvspan(bad[0], bad[-1], color=INK2, alpha=.08, lw=0)
         ax.set_title(f"{lbl} · 99% VaR（公共样本 {len(sub)} 日，{sub.index[0].date()} ~ {sub.index[-1].date()}）",
@@ -440,7 +429,7 @@ def main() -> None:
         ax.set_ylabel("日收益 / VaR (%)" if i == 0 else "")
         ax.grid(alpha=.25, lw=.6)
         ax.margins(x=0.02)
-    # 两面板序列相同，图例提到画布顶部，否则会压住 2023-2024 段的分位线
+    # 两个面板画的是同一批序列，图例提到画布顶上，否则会压住 2023-2024 那段的分位线
     h, l = axes[0].get_legend_handles_labels()
     fig.legend(h, l, loc="upper center", ncol=4, fontsize=8.5, frameon=False,
                bbox_to_anchor=(0.5, 0.90))

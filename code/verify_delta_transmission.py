@@ -1,19 +1,20 @@
-"""验证「因子冲击 → 组合损失」的线性传导精度（阶段二补充 · 导师 9/18 反馈第 2 条）
+"""看因子冲击传到组合损失这条线到底有多准（阶段二补充 · 导师 9/18 反馈第 2 条）
 
 消费：factors/factor_table_nav_tr.csv、events/risk_events_timeline.csv、
-      results/model_scorecard.csv（取 HS250 的 1 日 95% VaR 作偏差的量级基准）
+      results/model_scorecard.csv（取 HS250 的 1 日 95% VaR，当偏差的量级尺子）
 产出：results/delta_transmission_events.csv / delta_transmission_summary.csv
       figures/delta_transmission.png
-口径：主窗 = 事件日起 3 个交易日 [e, e+2]（事件日常在收盘后公布，留出反应日），另报 1 日
-      与 5 日作稳健性对照，累计一律用对数收益求和。检验对象是可观测因子模型 M2（利率双
-      因子）与 M3（加 ΔOAS）；M1δ 把回归残差当因子喂回去，在估计样本上是代数恒等式、R²≡1，
-      不是模型，不作独立证据。δ 有两种来源：A 全样本 δ（in-sample，回答报告上的 δ 准不准）
-      与 B 事件前 δ（只用事件窗前的样本重估，out-of-sample，为本脚本主检验）。次口径在
-      M2/M3 上再加 +1.0×fx_ret_pct。偏差分解为参数差异项 + 信用残差项。
-边界：OAS 仅自 2023-09-06 起可用，M3 只在事件日 ≥ 该日的子样本上检验，且须与 M2 在同一
-      子样本上对比，不能拿全样本 M2 减子样本 M3。事件日不在交易日历上的映射到其后首个
-      交易日；85 个事件 × 5 日窗在 1273 天样本上必然重叠（实测 40 对），事件窗只作描述性
-      偏差幅度，不做显著性检验。
+口径：主窗取事件日起 3 个交易日 [e, e+2]——事件常常是收盘后才公布，得给市场留一天反应；
+      另外报 1 日和 5 日作稳健性对照，累计一律用对数收益相加。检验的是可观测因子模型
+      M2（利率双因子）和 M3（再加 ΔOAS）。M1δ 把回归残差当因子喂回去，在估计样本上就是
+      个代数恒等式，R² 恒等于 1，它不是模型，不能拿来当独立证据。δ 有两个来源：A 是全样本
+      δ（in-sample，回答报告上那个 δ 准不准），B 是事件前 δ（只用事件窗之前的样本重估，
+      样本外，是本脚本的主检验）。次口径在 M2/M3 上再加 +1.0×fx_ret_pct。偏差拆成两块：
+      参数差异项 + 信用残差项。
+边界：OAS 只有 2023-09-06 起可用，M3 只能在事件日不早于这天的子样本上检验，而且必须和
+      M2 放在同一个子样本里比，不能拿全样本 M2 去减子样本 M3。事件日不在交易日历上的，
+      顺延到其后第一个交易日。85 个事件乘 5 日窗，在 1273 天的样本上必然重叠（实测 40 对），
+      所以事件窗只能描述偏差有多大，做不了显著性检验。
 用法：./.venv/bin/python code/verify_delta_transmission.py
 """
 from __future__ import annotations
@@ -42,17 +43,15 @@ C_MAIN, C_ALT, C_NEU, C_OK = "#2a78d6", "#eb6834", "#9a9a96", "#1baf7a"
 
 
 def fit(X: pd.DataFrame, y: pd.Series, extra: list[str] | None = None):
-    """对单窗口做 OLS 回归 r = c + Σδ·x。
+    """单个窗口上跑一次 OLS：r = c + Σδ·x。
 
-    参数：
-        X: 因子表，索引为交易日；自变量取 RATE（d5y_bp、d10y_bp），extra 里的列追加在后。
-        y: 因变量序列（%），与 X 同索引。
-        extra: 追加的自变量列名列表，如 ["doas_bp"]；None 表示只用利率双因子。
+    X 是因子表，索引为交易日，自变量固定取 RATE（d5y_bp、d10y_bp），extra 里的列接在后面。
+    y 是因变量（%），和 X 同索引。extra 是要追加的自变量列名，比如 ["doas_bp"]，
+    给 None 就只用利率双因子。
 
-    返回：
-        (params, resid, r2, nobs) 四元组；params 为 dict，键为 "const" 与各因子列名；
-        resid 为拟合残差序列，r2 为 R²，nobs 为参与拟合的观测数。
-        y 与自变量同时非 NaN 的样本不足 MIN_EST=40 时返回 None。
+    返回 (params, resid, r2, nobs)：params 是 dict，键为 "const" 和各因子列名；resid 是
+    拟合残差；r2 是 R²；nobs 是参与拟合的观测数。y 和自变量同时不是 NaN 的样本不够
+    MIN_EST=40 个时返回 None。
     """
     regs = RATE + (extra or [])
     d = pd.concat([y.rename("y"), X[regs]], axis=1).dropna()
@@ -64,17 +63,12 @@ def fit(X: pd.DataFrame, y: pd.Series, extra: list[str] | None = None):
 
 
 def predict(p: dict, X: pd.DataFrame, w: slice, use_fx: bool, use_oas: bool) -> float:
-    """在窗口 w 上累加模型的预测收益。
+    """在窗口 w 上把模型的预测收益累加起来。
 
-    参数：
-        p: 参数字典，键为 "const" / "d5y_bp" / "d10y_bp"；use_oas 时还需 "doas_bp"。
-        X: 因子表，索引为交易日。
-        w: 窗口切片，对 X 的行切片（如 slice(p0, p0+3)）。
-        use_fx: 是否再加 +1.0×fx_ret_pct（人民币口径的汇率搬运项，不是估计出的系数）。
-        use_oas: 是否再加 doas_bp 项。
-
-    返回：
-        float，窗口内预测收益的累计值（%）。
+    p 是参数字典，键为 "const" / "d5y_bp" / "d10y_bp"，use_oas 为真时还要有 "doas_bp"。
+    X 是因子表，索引为交易日。w 是窗口切片，切的是 X 的行，比如 slice(p0, p0+3)。
+    use_fx 决定要不要再加 +1.0×fx_ret_pct——这一项是人民币口径的汇率搬运，不是估出来的
+    系数；use_oas 决定要不要加 doas_bp 那一项。返回窗口内预测收益的累计值（%）。
     """
     s = p["const"] + p["d5y_bp"] * X["d5y_bp"].iloc[w] + p["d10y_bp"] * X["d10y_bp"].iloc[w]
     if use_oas:
@@ -85,19 +79,20 @@ def predict(p: dict, X: pd.DataFrame, w: slice, use_fx: bool, use_oas: bool) -> 
 
 
 def main() -> None:
-    """传导精度验证主流程（口径与统计纪律见模块 docstring）。
+    """传导精度验证的主流程，口径和统计纪律见模块头上的说明。
 
-    脚本契约：
-        消费：factors/factor_table_nav_tr.csv（复权 USD 与人民币收益，以及 d5y_bp / d10y_bp /
-            doas_bp / fx_ret_pct 因子列）；events/risk_events_timeline.csv（事件清单）；
-            results/model_scorecard.csv（取 HS250 的 1 日 95% VaR 作偏差的量级基准）。
-        产出：results/delta_transmission_events.csv（逐事件 × 模型 × δ来源 × 窗口明细）；
-            results/delta_transmission_summary.csv（同维度汇总）；figures/delta_transmission.png。
-        断言/边界：δ 一律在 USD 复权收益上估计，次口径预测时另加 +1.0×fx_ret_pct（若直接在
-            r_rmb 上回归，汇率会被利率/OAS 系数吸收，预测时再加一次构成重复计算）；M3 受
-            OAS 自 2023-09-06 起可用所限，只在该子样本上检验，且须与 M2 在同一子样本内
-            对比；事件日不在交易日历上的映射到其后首个交易日；85 个事件 × 5 日窗在 1273 天
-            样本上必然重叠（实测 40 对），事件窗只作描述性偏差幅度，不做显著性检验。
+    消费 factors/factor_table_nav_tr.csv（复权 USD 与人民币收益，以及 d5y_bp / d10y_bp /
+    doas_bp / fx_ret_pct 四个因子列）、events/risk_events_timeline.csv（事件清单）、
+    results/model_scorecard.csv（取 HS250 的 1 日 95% VaR 当偏差的量级尺子）。
+
+    产出 results/delta_transmission_events.csv（逐事件 × 模型 × δ来源 × 窗口的明细）、
+    results/delta_transmission_summary.csv（同样维度的汇总）、figures/delta_transmission.png。
+
+    δ 一律在 USD 复权收益上估，次口径预测时再另外加 +1.0×fx_ret_pct。别直接在 r_rmb 上
+    跑回归：那样汇率会被利率和 OAS 的系数吸进去，预测时再加一次就是重复计算。M3 受 OAS
+    只有 2023-09-06 起可用所限，只能在这个子样本上检验，并且必须和 M2 在同一子样本里比。
+    事件日不在交易日历上的，顺延到其后第一个交易日。85 个事件乘 5 日窗，在 1273 天的样本上
+    必然重叠（实测 40 对），事件窗只描述偏差幅度，不做显著性检验。
     """
     F = pd.read_csv(FACT / "factor_table_nav_tr.csv", parse_dates=["date"]).set_index("date")
     ev = pd.read_csv(EVENTS_CSV, parse_dates=["date"])
@@ -134,10 +129,10 @@ def main() -> None:
 
     # ---- 2) 逐事件 × 模型 × 口径 × δ来源 × 窗口 ----
     rows = []
-    # δ 一律在 USD 复权收益上估计（factor_exposure.csv 的 δ 就是这个口径）：
-    #   r_rmb = r_tr + fx_ret  ⇒  ∂r_rmb/∂Δ5Y = ∂r_tr/∂Δ5Y，利率/利差 δ 两口径相同，
-    #   汇率不是估计出来的系数而是口径搬运（恒为 +1）。
-    # 若直接在 r_rmb 上回归而把 fx_ret 留在残差里，fx_ret 会被利率/OAS 系数吸收，
+    # δ 一律在 USD 复权收益上估，factor_exposure.csv 里的 δ 就是这个口径：
+    #   r_rmb = r_tr + fx_ret  ⇒  ∂r_rmb/∂Δ5Y = ∂r_tr/∂Δ5Y，所以利率和利差的 δ 两个口径
+    #   长得一样；汇率不是估出来的系数，是口径搬运，恒等于 +1。
+    # 要是直接在 r_rmb 上回归、把 fx_ret 留在残差里，它会被利率和 OAS 的系数吸走，
     # 预测时再加一次 fx_ret 就是重复计算。
     y_fit = F["etf_ret_tr_pct"]
     for cal, ycol, use_fx in (("主", "etf_ret_tr_pct", False),
@@ -175,7 +170,7 @@ def main() -> None:
                             pp = pf
                         r_act = float(y.iloc[w].sum())
                         r_hat = predict(pp, F, w, use_fx, use_oas)
-                        # 偏差分解（用同口径的全样本参数作参照系）
+                        # 把偏差拆成两块，参照系用同口径的全样本参数
                         par = float(((pf["const"] - pp["const"])
                                      + (pf["d5y_bp"] - pp["d5y_bp"]) * F["d5y_bp"].iloc[w]
                                      + (pf["d10y_bp"] - pp["d10y_bp"]) * F["d10y_bp"].iloc[w]
@@ -229,7 +224,8 @@ def main() -> None:
     S.to_csv(RES / "delta_transmission_summary.csv", index=False, encoding="utf-8-sig")
     print(f"[3] 汇总 → results/delta_transmission_summary.csv  {S.shape[0]} 行")
 
-    # 恒等式核对：偏差全在利率+信用侧，汇率项按构造对消，故两口径的绝对偏差逐值相同
+    # 核对恒等式：偏差全出在利率和信用这一侧，汇率项按构造自动对消，所以两个口径的
+    # 绝对偏差逐个值都一样
     chk = E[E.model == "M2 利率双因子"].pivot_table(
         index=["delta_src", "window", "e_date"], columns="caliber", values="dev_pct")
     dif = float((chk["主"] - chk["次"]).abs().max())

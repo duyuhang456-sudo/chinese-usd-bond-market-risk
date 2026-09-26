@@ -1,15 +1,15 @@
-"""产物对账：核对 results/ 下 CSV 的行列维度，防「脚本改了、README 没跟」。
+"""产物对账：核对 results/ 下每张 CSV 的行列数，防「脚本改了、README 没跟」。
 
-全链路脚本只保证「跑得出结果」，不保证「结果与文档描述一致」。9/25 那次 1 日重做后出现
-28 处缺陷，成因之一就是数据改了、引用它的文档没同步。本模块把 README「结果目录」两节里
-声明的行×列固化成期望值逐张核对，一旦某个脚本改了输出形状而文档未更新就立即报错。
+全链路的脚本只保证跑得出结果，不保证结果跟文档写的一致。9/25 那次 1 日重做出了 28 处缺陷，
+其中一个成因就是数据改了、引用它的文档没同步。这里把 README「结果目录」两节里声明的行×列
+抄成期望值逐张核对，哪个脚本改了输出形状而文档没更新，当场就报出来。
 
-期望值的来源分两类，表中逐行标注：
-  [R] = README「结果目录」小节明文声明的行数/列数；
-  [M] = README 未声明列数、由实测补全（行数与 [R] 一致）。
+期望值的来源有两类，表里逐行标了：
+  [R] = README「结果目录」小节明写了行数/列数；
+  [M] = README 没写列数，靠实测补上的（行数跟 [R] 一致）。
 
 用法：
-    python code/check_outputs.py          # 对账，失败返回码 1
+    python code/check_outputs.py          # 对账，不一致返回码 1
 """
 from __future__ import annotations
 
@@ -61,14 +61,11 @@ EXPECTED = PHASE2 + PHASE3
 
 
 def check(verbose: bool = True) -> list[str]:
-    """核对 results/ 下每张 CSV 的行列维度，并反查有无未登记的 CSV。
+    """核对 results/ 下每张 CSV 的行列数，再反查有没有没登记的 CSV。
 
-    参数：
-        verbose: True 时逐张打印 OK 行与汇总；False 时只收集问题。
-
-    返回：
-        不一致清单。每项为一句可直接打印的说明；空列表表示全部对上。
-        含两类问题：形状与 EXPECTED 不符，以及 results/ 下存在未登记的文件。
+    verbose=True 就逐张打印 OK 行和汇总，False 只收问题不打字。返回不一致清单，每项是一句
+    能直接打印的说明，空列表就是全对上了。清单里是两类问题：形状跟 EXPECTED 对不上，以及
+    results/ 下冒出期望表里没有的文件。
     """
     bad: list[str] = []
     if verbose:
@@ -90,7 +87,7 @@ def check(verbose: bool = True) -> list[str]:
         elif verbose:
             print(f"    OK  {name:<32} {got[0]:>5} 行 × {got[1]:>2} 列")
 
-    # 反向检查：results/ 下不应有 README 未登记、也未在期望表里的 CSV
+    # 反着再查一遍：results/ 下不该有 README 没写、期望表里也没有的 CSV
     known = {n for n, *_ in EXPECTED}
     extra = sorted(p.name for p in RES.glob("*.csv") if p.name not in known)
     bad += [f"{n}: 存在于 results/ 但未登记（README 或本表须补）" for n in extra]
@@ -105,10 +102,9 @@ def check(verbose: bool = True) -> list[str]:
 
 
 def main() -> int:
-    """打印对账表头并执行 check()。
+    """打印表头，跑一遍 check()。
 
-    返回：
-        进程退出码：0 全部一致，1 存在不一致。
+    返回退出码：0 是全部一致，1 是有对不上的。
     """
     print("=" * 70)
     print("产物对账（code/check_outputs.py）")

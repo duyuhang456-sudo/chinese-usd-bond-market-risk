@@ -1,22 +1,22 @@
-"""一键运行入口：把四个阶段的全部脚本串成一条命令。
+"""一键运行入口：把四个阶段的全部脚本按依赖顺序串成一条命令（阶段四 Day1 · 9/21）
 
-此前复现全链路需要按 README 手敲 12 条命令，且必须按序——脚本之间靠 CSV 传参，顺序错了会
-静默用到上一次的旧产物。本脚本把那 12 条固化成一个有依赖顺序的清单，并区分两类失败：
+消费：不读数据，只是挨个调用 code/ 下的脚本
+产出：各脚本自己的产物；跑完由 code/check_outputs.py 统一对账
+口径：没有——本脚本只管调用顺序，不碰任何一个数字
+边界：取数类脚本失败只记警告继续跑；计算类脚本失败立即终止
+用法：python code/run_all.py                       # 跑 phase1+2+3（默认跳过取数）
+      python code/run_all.py --only phase2,phase3  # 只跑计量与压力测试
+      python code/run_all.py --download            # 连同取数一起跑（需联网）
+      python code/run_all.py --check               # 只做产物对账，不重跑测算
+      python code/run_all.py --list                # 列出执行清单后退出
 
-  * 取数类（`download_*`，需联网）失败：记警告并继续。因子与结果都可从已归档的
-    `raw_data/` 重建，取数失败不该阻断离线复现。
-  * 计算类失败：立即终止并返回非零码。带着缺料往下跑会污染后续所有产物，且这种
-    污染不会自我暴露。
+以前复现全链路得照 README 手敲 12 条命令，还得自己保证顺序——脚本之间靠 CSV 传参，顺序错
+了不会报错，只会静默拿上一次的旧产物接着算。这份清单把那 12 条固化下来，并把失败分成两类：
+取数失败不拦，raw_data/ 里有归档数据就能离线重建；计算失败必须停，带着缺料往下跑，后面
+的产物会静默基于旧数据，而且不会自己暴露。
 
-用法：
-    python code/run_all.py                       # 跑 phase1+2+3（默认跳过取数）
-    python code/run_all.py --only phase2,phase3  # 只跑计量与压力测试
-    python code/run_all.py --download            # 连同取数一起跑（需联网）
-    python code/run_all.py --check               # 只做产物对账，不重跑测算
-    python code/run_all.py --list                # 列出执行清单后退出
-
-依赖顺序的可读版本见 `docs/tool_usage.md` §3「分阶段运行」；本文件下方的 `STEPS` 是该顺序的
-唯一可执行来源，`code/check_outputs.py` 会核对每步的产物形状。
+给人看的依赖顺序见 docs/tool_usage.md §3「分阶段运行」；本文件下面的 STEPS 才是这份顺序
+的唯一可执行来源，真正跑的就是它，code/check_outputs.py 会核对每步的产物形状。
 """
 from __future__ import annotations
 
@@ -34,9 +34,9 @@ CODE = Path(__file__).resolve().parent
 PY = sys.executable
 
 # (阶段, 脚本名, 类别)
-# 类别：download = 需联网、失败只警告；compute = 失败即终止。
+# 类别只有两种：download 要联网，失败记个警告接着跑；compute 失败就停。
 # build_factors.py / staleness_remedy.py / descriptive_stats.py 不在关键路径上
-# （不喂给阶段二），但属阶段一交付物，一并重建。
+# （不喂给阶段二），但也是阶段一的交付物，所以一并重建。
 STEPS: list[tuple[str, str, str]] = [
     ("phase1", "download_all", "download"),
     ("phase1", "download_nav", "download"),
@@ -67,23 +67,12 @@ PHASE_NAMES = {
 
 
 def banner(t: str) -> None:
-    """打印一条上下带分隔线的标题。
-
-    参数：
-        t: 标题文本。
-
-    返回：
-        None。
-    """
+    """打印一条标题，上下各加一道分隔线。t 是要显示的文本。"""
     print(f"\n{'=' * 78}\n{t}\n{'=' * 78}")
 
 
 def list_steps() -> None:
-    """按阶段分组打印 STEPS 的执行清单，不执行任何脚本。
-
-    返回：
-        None。
-    """
+    """按阶段分组打印 STEPS 的清单，只打印，一个脚本都不跑。"""
     banner("执行清单")
     cur = None
     for i, (phase, script, kind) in enumerate(STEPS, 1):
@@ -95,16 +84,14 @@ def list_steps() -> None:
 
 
 def run_step(script: str, kind: str, quiet: bool) -> tuple[bool, float]:
-    """以子进程运行一个脚本，返回它是否成功以及耗时。
+    """开个子进程跑一个脚本，返回它成没成、花了多少秒。
 
-    参数：
-        script: 脚本名，不含目录与 .py 后缀，如 "stress_impact"。
-        kind: 类别，"download" 或 "compute"。当前函数体未使用它——
-            失败是否中断由调用方按类别判断；保留该参数是为与 STEPS 的三元组对齐。
-        quiet: True 时捕获输出、只在失败时打印末尾 2000 字符；False 时直接透传。
+    script 是脚本名，不带目录也不带 .py 后缀，比如 "stress_impact"。kind 是类别
+    （"download" 还是 "compute"），这个函数体里其实用不到——失败了要不要中断，是调用方
+    按类别判断的，参数留着只是为了跟 STEPS 的三元组对上。quiet 为 True 时把子进程的
+    输出收起来，只在失败时打印末尾 2000 字符；为 False 就直接透到终端上。
 
-    返回：
-        (ok, 秒数) 二元组。脚本文件不存在时返回 (False, 0.0)，不抛异常。
+    返回 (成没成, 秒数) 这样一个二元组；脚本文件不存在就返回 (False, 0.0)，不抛异常。
     """
     path = CODE / f"{script}.py"
     if not path.exists():
@@ -125,14 +112,11 @@ def run_step(script: str, kind: str, quiet: bool) -> tuple[bool, float]:
 
 
 def main() -> int:
-    """一键运行入口：解析参数、按依赖顺序跑脚本、跑完做产物对账。
+    """一键运行入口：解析参数、按依赖顺序跑脚本、跑完做一次产物对账。
 
-    参数：
-        从 sys.argv 读取，支持 --only / --download / --check / --quiet / --list。
-
-    返回：
-        进程退出码。0 全部成功且对账一致；1 计算类脚本失败或产物对账未通过；
-        2 阶段名非法。
+    参数从命令行读，认 --only / --download / --check / --quiet / --list 这几个。
+    返回的是进程退出码，只有三种：0 = 全部成功且对账通过；1 = 计算类脚本失败，
+    或者产物对账没过；2 = 阶段名写错了。
     """
     ap = argparse.ArgumentParser(
         description="中资投资级美元债风险计量与压力测试预研工具 · 一键运行入口",
@@ -201,7 +185,7 @@ def main() -> int:
         print(f"  已用 {time.perf_counter() - t_all:.1f}s；请先修复 code/{script}.py。")
         return 1
 
-    # 全链路跑完后的产物对账
+    # 全部跑完，对一次账
     banner("产物对账")
     from check_outputs import check
     bad = check()

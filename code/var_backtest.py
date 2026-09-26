@@ -1,16 +1,19 @@
-"""滚动窗口回测：失败率 + Kupiec + Christoffersen 检验，出违规时间线与覆盖率图。
+"""滚动窗口回测：拿 9/15、9/16 的 VaR 序列数违规，跑 Kupiec 和 Christoffersen 检验，
+再出违规时间线和覆盖率图（阶段二 Day4 · 9/17）
 
 消费：results/var_parametric.csv、results/var_historical.csv、results/regimes.csv、
       results/doubtful_days.csv、factors/factor_table_3141HK.csv、
       events/risk_events_timeline.csv
 产出：results/backtest_results.csv、results/backtest_exceptions.csv
       figures/backtest_exceptions.png、figures/backtest_coverage.png
-口径：估计窗 250 交易日、步长 1 日，样本外 1023 日（2022-08 ~ 2026-09）；违规 = r_t < −VaR_t，
-      VaR 存正值。存疑日只从评估样本剔除，VaR 与收益序列一字不动，dOAS 类不剔除。分段标志
-      是含当日的 60 日滚动 σ，属事后同期标记，不可读作事前可知的高波动段。
-边界：主口径 full 的 8 模型 × 2 置信度计数与公共 523/773 组计数须逐一复现 9/16 登记值，
-      不符即断言中断；危机窗在样本外命中 0 天，故不建危机段检验表。
-用法：./.venv/bin/python code/var_backtest.py（全部测算在 main() 内，import 无副作用）
+口径：估计窗 250 个交易日、步长 1 日，样本外 1023 天（2022-08 ~ 2026-09）。违规指当天收益
+      跌破 −VaR，VaR 一律存正值。存疑日只从评估样本里剔掉，VaR 和收益序列一个字都不动；
+      dOAS 那类存疑日不剔。分段用的高波动标志是含当日的 60 日滚动 σ，是事后回头标出来的，
+      不能当成事前就知道的高波动段来读。
+边界：主口径 full 下 8 个模型 × 2 个置信度的计数、还有公共 523 / 773 组的计数，必须和 9/16
+      登记的数字逐个对上，对不上就断言中断；危机窗在样本外一天都没命中，所以不建危机段的
+      检验表。
+用法：./.venv/bin/python code/var_backtest.py（测算全在 main() 里，import 不产生副作用）
 """
 from __future__ import annotations
 
@@ -36,19 +39,19 @@ from var_common import (C_M1, C_GARCH, C_ALT, C_GREY, INK2, WIN, hit_series,
                         accept_region, lr_null, lr_ind_null_conditional, p_mc, lr_cc)
 
 
-B_MC = 20000            # 蒙特卡洛重复数，为量化 spec §7.2 L265「检验力有限」所需
+B_MC = 20000            # 蒙特卡洛重复数，用来量化 spec §7.2 讲的「检验力有限」
 P_NOM = {"95": 0.05, "99": 0.01}
 
 # ---- 模型注册表 ----
-# 五元组 = (tag, role, 源, 主口径列模板, 次口径列模板)。次口径 None 表示该变体没有次口径
-# 序列：GARCH-t 只有主口径，9/15 未生成 rmb_garch_t_*。
+# 每行是一个五元组：(标签, 角色说明, 数据源, 主口径列名模板, 次口径列名模板)。次口径写 None
+# 就是没有这一路序列：GARCH-t 只有主口径，9/15 那天没生成 rmb_garch_t_* 这些列。
 MODELS = [
     ("M1",     "主",                 "par", "m1_var_{c}",      "rmb_m1_var_{c}"),
     ("M1g",    "主",                 "par", "garch_var_{c}",   "rmb_garch_var_{c}"),
     ("M1e",    "主",                 "par", "ewma_var_{c}",    "rmb_ewma_var_{c}"),
-    # M1g-t 实为「t 似然估的 σ_t」乘「正态分位」：实测 garch_t_var_{95,99} / sig_garch_t
-    # 恒为 1.6449 / 2.3263（1023 个值极差 1.5e-5 / 2.1e-5），不是 t 分位 VaR。
-    # role 写明这一点，免得被读成「已做 Student-t 分位数」。
+    # M1g-t 其实是「用 t 似然估出来的 σ_t」再乘「正态分位」：实测 garch_t_var_{95,99} 除以
+    # sig_garch_t 恒等于 1.6449 / 2.3263（1023 个值里最大最小只差 1.5e-5 / 2.1e-5），
+    # 并不是 t 分位的 VaR。role 里把这话说死，免得被读成「已经用了 Student-t 分位数」。
     ("M1g-t",  "对照-t估σ+正态分位",  "par", "garch_t_var_{c}", None),
     ("M1d",    "恒等式-不作独立证据",  "par", "dnorm_var_{c}",   "rmb_dnorm_var_{c}"),
     ("HS250",  "主",                 "his", "hs250_var_{c}",   "rmb_hs250_var_{c}"),
@@ -58,20 +61,21 @@ MODELS = [
     ("FHS-G",  "主",                 "his", "fhs_g_var_{c}",   "rmb_fhs_g_var_{c}"),
 ]
 CAL_COL = {"主": "ret_tr_pct", "次": "ret_rmb_pct"}
-# 图只画 8 个主模型：M1d 与 M1 的违规集合完全相同（恒等式），M1g-t 是分布变体对照。
-# 这两个仍进 CSV 与检验表，只是不进图，免得「多一个点就当多一个模型」。
+# 图里只画 8 个主模型：M1d 和 M1 的违规日一模一样（本来就是恒等式），M1g-t 只是换了分布
+# 假设的对照。这两个照样进 CSV 和检验表，只是不画进图里，免得看见多一个点就当成多了一个
+# 模型。
 PLOT_MODELS = ["M1", "M1g", "M1e", "HS250", "HS500", "HS750", "FHS-E", "FHS-G"]
 FAMILY = {"M1": "参数法", "M1g": "参数法", "M1e": "参数法",
           "HS250": "经典 HS", "HS500": "经典 HS", "HS750": "经典 HS",
           "FHS-E": "Filtered-HS", "FHS-G": "Filtered-HS"}
 FAM_COLOR = {"参数法": C_M1, "经典 HS": C_ALT, "Filtered-HS": C_GARCH}
 
-# spec §6 L222-224 登记的 VaR 跳变点：由大额亏损日进出窗驱动，不是模型失效。
-# 遇违规日先查是否落在跳变点附近，再作归因。
+# spec §6 登记过的几个 VaR 跳变点：这些跳变是大额亏损日进出估计窗造成的，不是模型失效。
+# 碰上违规日，先看它是不是落在这些日子附近，再谈归因。
 GHOST_JUMPS = [pd.Timestamp(x) for x in
                ["2022-09-27", "2023-10-04", "2025-04-08", "2026-04-09"]]
 
-# 9/16 登记的计数，作为硬断言基线，防止两天的口径分叉
+# 9/16 那天登记下来的计数，在这儿当硬断言用，防止两天的数字各算各的、越走越远
 BASELINE = {
     ("M1", "95"): (29, 1023), ("M1g", "95"): (30, 1023), ("M1e", "95"): (45, 1023),
     ("HS250", "95"): (44, 1023), ("HS500", "95"): (20, 773), ("HS750", "95"): (9, 523),
@@ -88,28 +92,18 @@ BASELINE_COMMON773 = {("HS250", "95"): 38, ("FHS-E", "95"): 44, ("FHS-G", "95"):
 
 
 def sec(t):
-    """打印一段带分隔线的段落标题。
-
-    参数：
-        t: 标题文本。
-    """
+    """打一段带分隔线的标题，纯粹是为了在终端里好找段落。t 就是要打的那行标题。"""
     print(f"\n{'=' * 78}\n{t}\n{'=' * 78}")
 
 def valid_index(tag: str, src: str, caliber: str, conf: str) -> pd.DatetimeIndex:
-    """某模型在某口径/置信度下的有效日（收益与 VaR 均非 NaN）。
+    """挑出某个模型在某口径、某置信度下真正有效的日子，也就是收益和 VaR 都不是空缺的那些天。
 
-    参数：
-        tag: 模型标签，须在 MODELS 中。
-        src: 数据源，"par"（9/15 参数法产物）或 "his"（9/16 历史模拟产物）。
-        caliber: 口径，"主" 或 "次"。
-        conf: 置信度字符串，"95" 或 "99"。
+    tag 是模型标签，得在 MODELS 里；src 取 "par"（9/15 参数法的产物）或 "his"（9/16 历史
+    模拟的产物）；caliber 是口径，"主" 或 "次"；conf 是置信度，"95" 或 "99"。
+    返回一个日期索引，装的是收益和 VaR 同时有值的日期。该模型在这个口径下压根没有对应的列
+    （比如 M1g-t 没有次口径），就返回一个空索引。
 
-    返回：
-        pd.DatetimeIndex，收益与 VaR 同时非 NaN 的日期；该模型在此口径下无对应列
-        （如 M1g-t 无次口径）时返回空索引。
-
-    备注：
-        读模块级全局 SRC（由 main 在载入段赋值）。
+    读的是模块级全局 SRC，由 main 在载入那一段赋值。
     """
     rcol = CAL_COL[caliber]
     col = next((m if caliber == "主" else rm)
@@ -121,20 +115,16 @@ def valid_index(tag: str, src: str, caliber: str, conf: str) -> pd.DatetimeIndex
     return d.index
 
 def transition_counts(idx: pd.DatetimeIndex, hit: np.ndarray, drop) -> tuple:
-    """按剔除前的原始日历相邻性数转移对。
+    """数转移对，相邻关系按剔除之前的原始日历算，不按剔除之后的算。
 
-    参数：
-        idx: 未剔除的完整日期索引。
-        hit: 与 idx 等长的违规指示数组（未剔除）。
-        drop: 拟剔除的日期集合（DatetimeIndex 或容器）；None 或空表示不剔除。
+    idx 是还没剔除的完整日期索引，hit 是和它等长的违规标记，drop 是打算剔除的日期集合
+    （DatetimeIndex 或别的容器都行），给 None 或者给空的就是不剔除。
+    返回 (n00, n01, n10, n11, 丢掉的配对对数) 五个值，前四个的含义和 christoffersen_lr 里
+    一样。
 
-    返回：
-        (n00, n01, n10, n11, 丢弃对数) 五元组；n00/n01/n10/n11 的含义同 christoffersen_lr。
-
-    备注：
-        任一端点为剔除日的 (t−1, t) 对整对丢弃，不把 d−1 与 d+1 重新拼成一对——聚集性说的是
-        日历相邻，跨越被剔除日重拼会凭空造一条不存在的邻接关系。这是 9/17 含/不含对照里
-        唯一容易被写错的地方。
+    (t−1, t) 这一对里只要有一头是剔除日，整对一起丢掉，不会把 d−1 和 d+1 重新拼成一对。
+    这里说的聚集是日历上挨着的两天，跨过被剔掉的日子硬拼，等于凭空造出一条本来不存在的
+    邻居关系。9/17 做含/不含两版对照时，最容易写错的就是这一处。
     """
     a, b = idx[:-1], idx[1:]
     ha, hb = hit[:-1], hit[1:]
@@ -148,34 +138,29 @@ def transition_counts(idx: pd.DatetimeIndex, hit: np.ndarray, drop) -> tuple:
 
 def evaluate(tag: str, role: str, src: str, caliber: str, conf: str,
              index: pd.DatetimeIndex | None, drop=None) -> dict | None:
-    """对一个 (模型, 口径, 置信度, 范围) 组合出具完整检验行。
+    """给一个 (模型, 口径, 置信度, 样本范围) 组合算出一整行检验结果。
 
-    参数：
-        tag: 模型标签，须在 MODELS 中。
-        role: 模型角色说明，原样写入结果（如 "主"、"恒等式-不作独立证据"、"对照-t估σ+正态分位"）。
-        src: 数据源，"par"（9/15 产物）或 "his"（9/16 产物）。
-        caliber: 口径，"主" 或 "次"。
-        conf: 置信度字符串，"95" 或 "99"。
-        index: 评估样本的日期索引；None 表示不做交集、用该模型的全部有效日。
-        drop: 拟剔除的日期集合；非空时先按剔除前序列数转移对，再剔除后重算失败率与 LR 检验。
+    tag 是模型标签，得在 MODELS 里；role 是模型角色的说明，原样写进结果（比如 "主"、
+    "恒等式-不作独立证据"、"对照-t估σ+正态分位"）；src 取 "par"（9/15 的产物）或 "his"
+    （9/16 的产物）；caliber 是口径，"主" 或 "次"；conf 是置信度，"95" 或 "99"。
+    index 是评估样本的日期索引，给 None 就不取交集、用这个模型的全部有效日；drop 是打算剔掉
+    的日期集合，非空时先按剔除前的序列数转移对，再用剔除后的样本重算失败率和 LR 检验。
 
-    返回：
-        dict，键为 model（=tag）、role、caliber、conf、scope（此处写空串，由调用处回填）、
-        T（有效日数 n）、x（违规数）、rate_pct（失败率 %）、exp_x（名义期望 n·p）、
-        n_zero（零收益日数）、exp_x_eff（剔除零收益日后的期望）、
-        lr_uc / p_uc、p_uc_mc（无条件零分布下的 p）、lr_ind / p_ind、p_ind_mc、
-        p_ind_mc_cond（给定观测违规数 x 的条件零分布 p）、lr_cc / p_cc、
-        n00 / n01 / n10 / n11 / n_pairs / n_pair_dropped（转移计数，按剔除前序列数得）、
-        x_lo / x_hi（Kupiec 精确接受区间）、mean_var（平均 VaR）、es（违规日平均损失）、
-        es_ratio（es / mean_var，mean_var 为 0 或 es 非有限时取 NaN）、
-        size_uc / size_ind（该 (n, p) 下名义 5% 的实际拒绝率）。
-        该模型在此口径下无对应列、或有效日 / 剔除后样本不足 30 日时返回 None。
+    返回一个 dict，装的是这一行的全部数字：model（就是 tag）、role、caliber、conf、
+    scope（这里写空串，由调用处回填）、T（有效天数 n）、x（违规次数）、rate_pct（失败率 %）、
+    exp_x（按名义率算的期望违规数 n·p）、n_zero（零收益日数）、exp_x_eff（把零收益日去掉后的
+    期望）、lr_uc 和 p_uc、p_uc_mc（无条件零分布下的 p）、lr_ind 和 p_ind、p_ind_mc、
+    p_ind_mc_cond（把观测到的违规数 x 按住之后的条件零分布 p）、lr_cc 和 p_cc、
+    n00 / n01 / n10 / n11 / n_pairs / n_pair_dropped（转移计数，按剔除前的序列数出来）、
+    x_lo 和 x_hi（Kupiec 的精确接受区间）、mean_var（平均 VaR）、es（违规日的平均亏损）、
+    es_ratio（es 除以 mean_var，mean_var 是 0 或者 es 不是有限数时给 NaN）、
+    size_uc 和 size_ind（这组 (n, p) 下名义 5% 的实际拒绝率）。
+    该模型在这个口径下没有对应列，或者有效日 / 剔除后的样本不足 30 天，就返回 None。
 
-    异常：
-        AssertionError：实际剔除条数与预期（drop 中落在评估样本内的日期数）不符，即剔除未生效。
+    实际剔除的条数要是和预期（drop 里落在评估样本内的日期个数）对不上，会抛 AssertionError，
+    意思是剔除根本没生效。
 
-    备注：
-        失败率与 LR 检验用剔除后样本，而 n00/n01/n10/n11 用剔除前序列，两条口径不能混。
+    失败率和 LR 检验用的是剔除后的样本，而 n00/n01/n10/n11 用的是剔除前的序列，两条不能混。
     """
     rcol = CAL_COL[caliber]
     _, _, _, m, rm = next(r for r in MODELS if r[0] == tag)
@@ -188,16 +173,16 @@ def evaluate(tag: str, role: str, src: str, caliber: str, conf: str,
         d0 = d0.loc[d0.index.intersection(index)]
     if len(d0) < 30:
         return None
-    # 转移对按剔除前的完整序列定相邻关系，见 transition_counts
+    # 转移对按剔除前的完整序列定相邻关系，理由见 transition_counts
     hit0 = hit_series(d0["r"], d0["v"])
     assert len(hit0) == len(d0), f"hit_series 丢行（{len(hit0)} ≠ {len(d0)}）——d0 已 dropna，不应再有缺失"
     n00, n01, n10, n11, n_pair_dropped = transition_counts(d0.index, hit0.to_numpy(), drop)
 
     d = d0 if not (drop is not None and len(drop)) else d0.loc[~d0.index.isin(drop)]
     n_dropped = len(d0) - len(d)
-    # 剔除集合与序列索引若因类型不匹配而完全不相交，isin 会给出一片 False、剔除数为 0，
-    # 「两版结果相同」就成了假结论。本样本上 2025-03-24 / 2025-01-21 确实命中违规，
-    # 真剔除数必大于 0，故按预期条数断言。
+    # 剔除集合和序列索引要是类型对不上，isin 会一路给 False、剔除数变成 0，那样「两版结果
+    # 相同」就是假的。本样本里 2025-03-24 / 2025-01-21 确实踩中违规，真剔除数一定大于 0，
+    # 所以这里拿预期条数来断言。
     if drop is not None and len(drop):
         expect = len([x for x in drop if x in d0.index])
         assert n_dropped == expect, f"剔除数 {n_dropped} ≠ 预期 {expect}——剔除未生效（静默空操作）"
@@ -213,7 +198,8 @@ def evaluate(tag: str, role: str, src: str, caliber: str, conf: str,
     n_pairs = n00 + n01 + n10 + n11
     lr_cc_v, p_cc = lr_cc(lr_uc, lr_ind)
 
-    # 有限样本 p：无条件零分布（与 size 表同一份模拟）与条件零分布（给定观测违规数）
+    # 有限样本的 p 值：一个来自无条件零分布（和 size 表用同一份模拟），一个来自条件零分布
+    # （把实际发生的违规次数按住）
     nul = lr_null(n, p, B=B_MC)
     p_uc_mc = p_mc(nul["lr_uc"], lr_uc)
     p_ind_mc = p_mc(nul["lr_ind"], lr_ind)
@@ -223,8 +209,8 @@ def evaluate(tag: str, role: str, src: str, caliber: str, conf: str,
     viol = d.loc[h, "r"]
     mean_var = float(d["v"].mean())
     es = float(-viol.mean()) if len(viol) else float("nan")
-    # 零收益日（NAV 原样结转）不可能构成 r < −VaR，名义期望 N·p 因此偏高。两列并列给出，
-    # 报告引用时二选一。
+    # 零收益日（NAV 原样结转）机械上不可能出现 r < −VaR，拿 N·p 算出来的名义期望因此偏高。
+    # 两列并排给出来，报告引用时挑一个，并说清楚用的是哪个。
     n_zero = int((d["r"].abs() < 1e-12).sum())
     return dict(model=tag, role=role, caliber=caliber, conf=conf, scope="", T=n, x=x,
                 rate_pct=x / n * 100.0, exp_x=n * p, n_zero=n_zero,
@@ -238,36 +224,34 @@ def evaluate(tag: str, role: str, src: str, caliber: str, conf: str,
                 n_pair_dropped=n_pair_dropped)
 
 def _near_event(d):
-    """违规日 ±6 个自然日内的既有市场事件，拼成一段文本。
+    """把某个违规日前后各 6 个自然日里的既有市场事件拼成一句话。
 
-    参数：
-        d: 单个交易日（pd.Timestamp）。
+    d 是某个交易日。返回形如 "2025-04-08 事件名；…" 的字符串，附近没有事件就给空串。
 
-    返回：
-        str，形如 "2025-04-08 事件名；…"；无邻近事件时返回空串。
-
-    备注：
-        EVT 为模块级全局（事件表），由 main 在载入段赋值。
+    读的是模块级全局 EVT（事件表），由 main 在载入那一段赋值。
     """
     m = EVT[(EVT["date"] >= d - pd.Timedelta(days=6)) & (EVT["date"] <= d + pd.Timedelta(days=6))]
     return "；".join(f"{r['date'].date()} {r['event_cn']}" for _, r in m.iterrows())
 
 def main() -> None:
-    """滚动窗口回测主流程（失败率 + Kupiec + Christoffersen，出违规时间线与覆盖率图）。
+    """滚动回测的主流程：数失败率、跑 Kupiec 和 Christoffersen，最后出违规时间线和覆盖率图。
 
-    脚本契约：
-        消费：results/var_parametric.csv、results/var_historical.csv（9/15、9/16 的 VaR 序列）；
-            results/regimes.csv（chronic_high / crisis_window 分段标志）；results/doubtful_days.csv
-            （存疑日清单，按 series 分 ETF_ret_pct / dOAS_bp / FX_ret_pct 三类）；
-            factors/factor_table_3141HK.csv（3141.HK 同向性核对）；events/risk_events_timeline.csv
-            （事件时间线）。
-        产出：results/backtest_results.csv（逐配置检验长表，33 列）；results/backtest_exceptions.csv
-            （full scope 的违规明细，另加 is_doubtful / doubtful_series / near_ghost / near_event /
-            co_3141_pct 五列）；figures/backtest_exceptions.png；figures/backtest_coverage.png。
-        断言/边界：VP 与 VH 的日期向量必须一致，不一致即停止；主口径 full 的 8 模型 × 2 置信度计数
-            与公共 523 / 773 组计数必须逐一复现 BASELINE 登记值，否则 AssertionError 停止出结论；
-            M1δ 与 M1 的违规日集合必须逐个相同（恒等式）；存疑日只从评估样本剔除，VaR 与收益序列
-            一字不动，dOAS 类不剔除；危机窗在样本外命中 0 天，故不建危机段检验表。
+    吃进来的：results/var_parametric.csv 和 results/var_historical.csv（9/15、9/16 的 VaR 序列）；
+    results/regimes.csv（chronic_high / crisis_window 两个分段标志）；results/doubtful_days.csv
+    （存疑日清单，按 series 分成 ETF_ret_pct / dOAS_bp / FX_ret_pct 三类）；
+    factors/factor_table_3141HK.csv（3141.HK 同向性核对）；events/risk_events_timeline.csv
+    （事件时间线）。
+
+    吐出去的：results/backtest_results.csv（一个配置一行，33 列的检验长表）；
+    results/backtest_exceptions.csv（full scope 的违规明细，另加 is_doubtful / doubtful_series /
+    near_ghost / near_event / co_3141_pct 五列）；figures/backtest_exceptions.png；
+    figures/backtest_coverage.png。
+
+    几道硬护栏：VP 和 VH 的日期向量必须一样，不一样就停；主口径 full 下 8 个模型 × 2 个置信度
+    的计数、以及公共 523 / 773 组的计数，必须逐个复现 BASELINE 里登记的数字，否则抛
+    AssertionError，不往下出结论；M1δ 和 M1 的违规日集合必须一个一个都对得上（恒等式）；
+    存疑日只从评估样本里剔，VaR 和收益序列一个字不动，dOAS 那类不剔；危机窗在样本外一天
+    都没命中，所以不建危机段的检验表。
     """
     global SRC, EVT
     ensure_dirs()
@@ -281,23 +265,23 @@ def main() -> None:
     EVT = pd.read_csv(EVENTS_CSV, encoding="utf-8-sig", parse_dates=["date"])
     B31 = pd.read_csv(FACT / "factor_table_3141HK.csv", encoding="utf-8-sig", parse_dates=["date"]).set_index("date")
     SRC = {"par": VP, "his": VH}
-    OOS = VP.index                                   # 样本外 1023 日
+    OOS = VP.index                                   # 样本外一共 1023 天
     print(f"  样本外 {len(OOS)} 日：{OOS[0].date()} ~ {OOS[-1].date()}")
     assert VP.index.equals(VH.index), "两个 VaR 产物的日期向量不一致——口径已分叉，停止"
 
-    # 存疑日按口径分集合。清单是市价口径识别的（spec §8.1 L420-422），映射到 NAV 收益需
-    # 逐条核对。
+    # 存疑日按口径分成几堆。清单是按市价口径认出来的（spec §8.1），映射到 NAV 收益得一条条
+    # 核对。
     ETF_D = list(DBT.loc[DBT["series"] == "ETF_ret_pct", "date"])
     FX_D = list(DBT.loc[DBT["series"] == "FX_ret_pct", "date"])
     OAS_D = list(DBT.loc[DBT["series"] == "dOAS_bp", "date"])
     DROP = {"主": [d for d in ETF_D if d in OOS],
             "次": [d for d in ETF_D + FX_D if d in OOS]}
-    DROP_ALL = [d for d in list(DBT["date"]) if d in OOS]      # 放宽版敏感性：不打折扣全剔
+    DROP_ALL = [d for d in list(DBT["date"]) if d in OOS]      # 放宽版敏感性：什么都不管，全剔
     print(f"  存疑日 16 条：ETF {len(ETF_D)} / dOAS {len(OAS_D)} / FX {len(FX_D)}")
     print(f"  落样本外并可剔除：主口径 {len(DROP['主'])} 条、次口径 {len(DROP['次'])} 条、放宽版 {len(DROP_ALL)} 条")
     print(f"  dOAS 类 {len(OAS_D)} 条**不剔除**：标注的是 OAS 序列异常，未改动 ETF 收益，而 VaR 的判定对象是 ETF 收益")
 
-    # 零收益日：NAV 原样结转（港股休市或数据陈旧），r=0 不可能构成违规
+    # 零收益日：NAV 原样结转（港股休市或者数据陈旧），r=0 不可能构成违规
     _nz = int((VP["ret_tr_pct"].reindex(OOS).abs() < 1e-12).sum())
     print(f"\n  【口径提示】主口径样本外有 {_nz}/{len(OOS)} 日（{_nz / len(OOS) * 100:.2f}%）复权收益恰为 0.0000%"
           f"——这些日子**机械上不可能违规**。")
@@ -306,7 +290,7 @@ def main() -> None:
     print("  长表同时给 exp_x（含零收益日）与 exp_x_eff（剔除）两列，报告引用时须二选一并声明。")
 
 
-    # 跨模型公共样本：口径 → 置信度 → 日期交集
+    # 跨模型的公共样本：先按口径、再按置信度，一层层取日期交集
     COMMON = {}
     for caliber in ("主", "次"):
         for conf in ("95", "99"):
@@ -320,7 +304,7 @@ def main() -> None:
             c523 = None
             for i in idxs.values():
                 c523 = i if c523 is None else c523.intersection(i)
-            # 773 组：剔除最宽的 HS750 后的交集
+            # 773 组：把窗最宽的 HS750 摘掉之后再取交集
             c773 = None
             for t, i in idxs.items():
                 if t == "HS750":
@@ -395,7 +379,7 @@ def main() -> None:
             print("  [不一致] " + b)
         raise AssertionError("口径对账失败——9/17 与 9/16 已分叉，停止出具结论")
     print(f"  主口径 full 8 模型 × 2 置信度 + 公共 523/773 组：全部与 9/16 登记一致 ✓")
-    # 恒等式断言：M1δ 与 M1 的违规日集合须逐个相同（spec §4 L102-103）
+    # 恒等式断言：M1δ 和 M1 的违规日集合必须一个一个都对得上（spec §4）
     for conf in ("95", "99"):
         a = EX[(EX.model == "M1") & (EX.caliber == "主") & (EX.conf == conf)]["date"].sort_values().tolist()
         b = EX[(EX.model == "M1d") & (EX.caliber == "主") & (EX.conf == conf)]["date"].sort_values().tolist()
@@ -405,7 +389,7 @@ def main() -> None:
 
     # ---- 存疑日含/不含 + 3141 核对 ----
     sec("存疑日「含/不含」两版对照（spec §8.1：必做，不作可选项）")
-    # 先列实际差异：哪些存疑日真的被判成违规
+    # 先看实际差在哪儿：哪些存疑日真的被判成了违规
     hits_on_doubt = EX[EX["date"].isin(DBT["date"])].copy()
     if len(hits_on_doubt):
         print(f"  落入存疑清单的违规记录 {len(hits_on_doubt)} 条，涉及 "
@@ -476,7 +460,7 @@ def main() -> None:
               f"该段 LR 检验**基本没有检验力**，结论只能作描述性对比。")
 
 
-    # ---- 极端日反应：谁先反应（周计划 9/17 下午 4） ----
+    # ---- 极端日反应：看谁先把 VaR 抬起来（周计划 9/17 下午第 4 项） ----
     sec("极端日反应：最差 |r| 日各模型 VaR 在自身 250 日历史中的分位")
     print("  读法：分位 = 当日 VaR 在该模型前 250 日 VaR 分布中的百分位。")
     print("  分位低 ⇒ 当天模型**还没把 VaR 抬起来**（未先反应）；分位高 ⇒ 已反应。")
@@ -588,9 +572,10 @@ def main() -> None:
     sec("出图 1：违规时间线 + 市场事件标注")
     ret95 = VP["ret_tr_pct"].reindex(OOS)
     ret99 = VP["ret_rmb_pct"].reindex(OOS)
-    # 事件标注数据驱动：只标注落在任一违规日 ±3 交易日内的既有事件（手工挑事件有选择性偏
-    # 差），再把交易日相邻（间隔 <= 3 个交易日）的事件并成「事件簇」——2025-04-08/09/10/11
-    # 这类连续冲击本就是同一段行情，逐日标注只会互相压叠。簇按命中违规条数排序取前 6。
+    # 标哪些事件由数据说了算：只标落在某个违规日前后 3 个交易日内的既有事件（手工挑事件能
+    # 挑出偏差），再把交易日挨着的事件（间隔不超过 3 个交易日）并成一个「事件簇」。
+    # 2025-04-08/09/10/11 这种连着来的冲击本来就是同一段行情，一天标一条只会糊成一片。
+    # 簇按命中违规的条数排序，取前 6 个。
     ev_hits = {}
     for d in EX["date"].unique():
         t = OOS.get_loc(d)
@@ -600,7 +585,7 @@ def main() -> None:
             ev_hits[(r["date"], r["event_cn"])] += 1
     _cl = []
     for (d, name), c in sorted(ev_hits.items(), key=lambda kv: kv[0][0]):
-        t = int(OOS.searchsorted(d))          # 非交易日事件用插入位置排序，仍参与成簇
+        t = int(OOS.searchsorted(d))          # 事件可能落在非交易日，用插入位置排序，照样参与成簇
         if _cl and t - _cl[-1]["t1"] <= 3:
             cl = _cl[-1]
             cl["t1"] = t
@@ -623,14 +608,14 @@ def main() -> None:
         rng = ds[0].strftime("%Y-%m-%d")
         if len(ds) > 1:
             rng += "~" + ds[-1].strftime("%m-%d")
-        # 事件名截断取自然断点（空格/括号/顿号），免得把词切成半截；无断点则硬截 18 字
+        # 截断事件名时挑个自然的断点（空格、括号、顿号），别把词切成半截；找不到断点就硬截 18 个字
         _brk = [p for p in (cl["top_name"].find(c) for c in " (（、") if p >= 4]
         short = cl["top_name"][:min(_brk)] if _brk else cl["top_name"][:18]
         cl["label"] = (f"{NUM[i]} {rng}　{short}"
                        + (f" 等 {cl['n_ev']} 事件" if cl["n_ev"] > 1 else "")
                        + f"（命中 {cl['hits']} 条违规）")
-    # 日期相近的簇若同层会把编号叠在一起（① 2025-04-08 与 ③ 2025-05-07 只隔 1 个月），
-    # 故按交易日间隔贪心分层：同层内相邻锚点至少隔 90 个交易日，最多两层。
+    # 日期挨得近的簇放在同一层，编号会叠在一起（① 2025-04-08 和 ③ 2025-05-07 只隔 1 个月），
+    # 所以按交易日间隔贪心分层：同一层里相邻锚点至少隔 90 个交易日，最多两层。
     _LVL_Y, _LVL_GAP = (7.55, 8.02), 90
     _lvl_last = [None] * len(_LVL_Y)
     for cl in sorted(top_ev, key=lambda c: c["anchor"] or OOS[0]):
@@ -646,8 +631,8 @@ def main() -> None:
         print("    " + cl["label"] + note)
 
     fig = plt.figure(figsize=(15.5, 9.2))
-    # 不在 GridSpec 上设 hspace/wspace：tight_layout 会覆盖它们并发出「Axes not compatible」
-    # 警告，行距改由 h_pad/w_pad 控制
+    # 别在 GridSpec 上设 hspace/wspace：tight_layout 会把它们覆盖掉，还甩一句
+    # 「Axes not compatible」警告；行距交给 h_pad/w_pad 管
     gs = fig.add_gridspec(3, 2, height_ratios=[3, 3, 1.15])
     for ci, caliber in enumerate(("主", "次")):
         ret = ret95 if caliber == "主" else ret99
@@ -660,7 +645,8 @@ def main() -> None:
                                color=FAM_COLOR[FAMILY[mdl]], linewidths=1.5, zorder=3)
             ax.set_yticks(range(len(PLOT_MODELS)))
             ax.set_yticklabels(PLOT_MODELS if ci == 0 else [""] * len(PLOT_MODELS), fontsize=8.5)
-            # 底部留白给事件编号；95% 与 99% 两行共用同一 ylim，同名模型才上下对齐可比
+            # 底下留白是给事件编号的；95% 和 99% 两行共用同一个 ylim，同一个模型在上下两行
+            # 才对得齐、好比
             ax.set_ylim(-0.7, 8.35)
             ax.invert_yaxis()
             ax.grid(axis="x", color="#e6e5e2", lw=0.6, zorder=0)
@@ -674,7 +660,7 @@ def main() -> None:
                 if cl["anchor"] is not None:
                     ax.axvline(cl["anchor"], color=INK2, lw=0.8, ls=":", alpha=0.5, zorder=1)
             if ri == 0:
-                # 编号贴在 95% 面板底部留白带：不压标题、不压最下一行模型标记、也不压收益条
+                # 编号贴在 95% 面板底部的留白带上：不压标题、不压最下面一行模型标记，也不压收益条
                 for i, cl in enumerate(top_ev):
                     if cl["anchor"] is not None:
                         ax.text(cl["anchor"], _LVL_Y[cl["lvl"]], NUM[i], fontsize=9,
@@ -706,8 +692,8 @@ def main() -> None:
     fig.suptitle("滚动回测违规时间线（样本外 2022-08 ~ 2026-09，估计窗 250 日 / 步长 1 日）\n"
                  "M1δ（恒等式，与 M1 违规日逐一相同）与 M1g-t（分布变体）不在图内",
                  fontsize=11, y=0.992)
-    # 编号对照表放图下缘：放顶部会压到各面板标题（标题在坐标区之外，tight_layout 的 rect
-    # 管不到）
+    # 编号对照表放在图的下缘：放顶部会压到各个面板的标题（标题在坐标区外面，
+    # tight_layout 的 rect 够不着）
     for j, row in enumerate((top_ev[:3], top_ev[3:])):
         fig.text(0.5, 0.055 - 0.022 * j, "　　".join(cl["label"] for cl in row),
                  ha="center", va="center", fontsize=8.5, color=INK2)
@@ -720,14 +706,15 @@ def main() -> None:
     sec("出图 2：覆盖率 + Kupiec 精确接受区间（检验力可视化）")
     fig, axes = plt.subplots(2, 2, figsize=(13.5, 8.0))
     for ri, conf in enumerate(("95", "99")):
-        # 同一置信度下主/次口径共用纵轴：各自 autoscale 会让两列尺度不同，横向比就成了错觉
+        # 同一个置信度下主口径和次口径共用一根纵轴：各自 autoscale 的话两列尺度不一样，
+        # 横着一比就是错觉
         _b = []
         for _c in ("主", "次"):
             _s = BT[(BT.conf == conf) & (BT.caliber == _c) & (BT.scope == "full")
                     & (BT.model.isin(PLOT_MODELS))].set_index("model").reindex(PLOT_MODELS).dropna(subset=["x"])
             _b += list(_s["rate_pct"]) + list(_s["x_lo"] / _s["T"] * 100) + list(_s["x_hi"] / _s["T"] * 100)
         _pad = 0.07 * (max(_b) - min(_b))
-        ylim = (max(0.0, min(_b) - _pad), max(_b) + _pad)     # 失败率非负，下界不越 0
+        ylim = (max(0.0, min(_b) - _pad), max(_b) + _pad)     # 失败率不会是负数，下界不越过 0
         for ci, caliber in enumerate(("主", "次")):
             ax = axes[ri, ci]
             sub = BT[(BT.conf == conf) & (BT.caliber == caliber) & (BT.scope == "full")
@@ -748,7 +735,8 @@ def main() -> None:
             ax.text(len(sub) - 0.45, nom, f"名义 {nom:g}%", fontsize=8, color=INK2, va="bottom", ha="right")
             ax.set_xticks(xs); ax.set_xticklabels(sub.index, rotation=35, ha="right", fontsize=8.5)
             ax.set_title(f"{'主口径（USD 复权）' if caliber == '主' else '次口径（人民币视角）'} · {conf}%", fontsize=9.5, loc="left")
-            # 这里的 95% 是检验置信度，两行都是它，与面板的 VaR 95%/99% 不是一回事，故写明
+            # 这里的 95% 是检验的置信度，上下两行都是它，跟面板上的 VaR 95%/99% 不是一回事，
+            # 所以写明白
             ax.set_ylabel("实际失败率 %（点=估计，竖线=Kupiec 95% 检验接受区间）" if ci == 0 else "", fontsize=8.5)
             ax.grid(axis="y", color="#e6e5e2", lw=0.6); ax.set_axisbelow(True)
             for s in ("top", "right"):

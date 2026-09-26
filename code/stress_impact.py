@@ -1,17 +1,21 @@
 """三路径情景映射 + 压力测试测算（阶段三 Day2–Day3 · 9/22–9/23）
 
-消费：results/stress_scenarios.csv
-产出：results/stress_impact.csv / results/stress_factor_contrib.csv
-      figures/stress_mapping.png / stress_loss_vs_var.png / stress_factor_contrib.png
-口径：三条路径不共用同一套 δ：利率沿用基准 δ 线性映射，信用另估「利率 + ΔOAS」三因子
-      模型并随点估计给 OLS 95% 区间，汇率是口径搬运（次口径系数恒 +1，主口径 δ_fx=0）。
-      缓冲按情景施加一次、取适用路径的最大值，信用区间上端不叠加。符号统一正值 = 损失，
-      唯一例外 loss_realized_pct（正值 = 收益）。headline 取 1 日：历史/补充取窗内最差
-      单日、假设情景取 δ 映射损失，贡献度分解落在该口径的最差单日当天。
-边界：δ(ΔOAS) 只在 OAS 可得的子样本（2023-09-05 起）上估出，不含 2022 年信用冲击，
-      其 95% 区间只反映估计误差，不反映「平静期系数外推到危机」。H1/H2/X1/X2 窗内
-      doas_bp 缺数据，信用项按 0 计入后落进残差列，故这些情景的残差 ≠ CR_2022_RESID。
-      纯汇率情景主口径损失恒为 0，是口径事实而非漏算。
+消费：results/stress_scenarios.csv（情景库）、results/factor_exposure.csv（基准 δ）、
+      results/backtest_results.csv（阶段二 HS250 的 VaR/ES）、factors/factor_table_nav_tr.csv、
+      results/delta_transmission_events.csv（借它取 2022 年的残差标定量）
+产出：results/stress_impact.csv、results/stress_factor_contrib.csv
+      figures/stress_mapping.png、stress_loss_vs_var.png、stress_factor_contrib.png
+口径：三条路径各有各的系数，不共用一套 δ。利率沿用基准 δ 线性映射；信用另估一个
+      「利率 + ΔOAS」的三因子模型，点估计旁边配一个 OLS 95% 区间；汇率只是换口径搬运，
+      次口径系数恒为 +1（人民币计价下汇率跌多少就损失多少），主口径 δ_fx = 0。
+      缓冲一个情景只加一次，取适用路径里最大的那档；信用区间上端不再叠缓冲。
+      符号统一按正值 = 损失，只有 loss_realized_pct 例外（正值 = 收益）。
+      headline 一律取 1 日：历史/补充情景取窗内最差单日，假设情景取 δ 映射出的损失，
+      贡献度分解就落在该口径最差单日那一天。
+边界：δ(ΔOAS) 只在 OAS 有数的子样本上估（2023-09-05 起），里面不含 2022 年那次信用
+      冲击，所以它的 95% 区间只覆盖估计误差，覆盖不了「拿平静期的系数去外推危机」。
+      H1/H2/X1/X2 窗内 doas_bp 缺数，信用项按 0 计入、差额落进残差列，所以这几个情景的
+      残差 ≠ CR_2022_RESID。纯汇率情景的主口径损失恒为 0，这是口径使然，不是漏算。
 用法：./.venv/bin/python code/stress_impact.py
 """
 from __future__ import annotations
@@ -33,25 +37,25 @@ from var_common import C_M1, C_GARCH, C_ALT, C_GREY, INK2
 ensure_dirs()
 
 # ---- 常量 ----
-# 持有期口径的唯一来源，别处一律引用本常量。
-HORIZON_DAYS = 1            # 1 日，与阶段二 VaR 口径对齐（老师 9 月口头指示）
+# 持有期只在这里定义一次，别处要用就引这个常量，别自己写数字。
+HORIZON_DAYS = 1            # 1 日，跟阶段二 VaR 口径对齐（老师 9 月口头指示）
 
-BUFFER_RATE = 0.3365        # pp，M2 × 主口径 × 1日 × 事件前δ 的 90 分位绝对偏差
-BUFFER_CREDIT = 0.3365      # pp，取利率侧保守值，不用 M3 自身的 1 日档 0.1997
-BUFFER_FX = 0.0             # 汇率是口径搬运（次口径 +1、主口径 0），不加缓冲
+BUFFER_RATE = 0.3365        # pp，M2 × 主口径 × 1 日 × 事件前δ 那一档算出的 90 分位绝对偏差
+BUFFER_CREDIT = 0.3365      # pp，取利率侧的保守值，不用 M3 自己的 1 日档 0.1997
+BUFFER_FX = 0.0             # 汇率只是换口径搬运（次口径 +1、主口径 0），没有模型误差可加
 
-# 信用区间上限的外推标定量：2022 年事件窗上「未解释残差」的最大绝对值。
-# 平静样本估出的 δ(ΔOAS) 不含 2022 年信用冲击，其 95% 区间只反映估计误差、
-# 不反映「平静期系数外推到危机」，故以 2022 年的实际残差幅度作为后者的代理，
-# 加到「平静样本强传导」一端构成区间上限。
-# 口径与信用情景同期限：信用情景是 1 日，此处即取 1 日窗。
-# 三个窗长下 dev_credit_pct 的最大值都落在 2022-11-14，该量因此也等于全样本最大，
-# 含义是「1 日窗全样本最大偏差（恰落在 2022 年）」，不是「2022 年极值」。
-# 与常量的对账见下方 load_2022_credit_resid()。
-CR_2022_RESID = 1.1147      # pp，1 日窗，2022-11-14（防控优化二十条+金融16条）
+# 信用区间上限靠这个数外推：2022 年事件窗里「未解释残差」的最大绝对值。
+# 平静样本估出来的 δ(ΔOAS) 里没有 2022 年那次信用冲击，95% 区间只覆盖估计误差，
+# 覆盖不了「平静期的系数拿去外推危机」这一层，所以拿 2022 年实际残差的幅度来代理它，
+# 加在「平静样本强传导」那一端，就是区间上限。
+# 期限跟信用情景对齐：信用情景是 1 日，这里就取 1 日窗。
+# 三个窗长算下来 dev_credit_pct 的最大值都落在 2022-11-14，所以它同时也是全样本最大，
+# 意思是「1 日窗的全样本最大偏差（正好落在 2022 年）」，不是「2022 年这一年的极值」。
+# 它跟常量的对账在下面的 load_2022_credit_resid() 里。
+CR_2022_RESID = 1.1147      # pp，1 日窗，2022-11-14（防控优化二十条 + 金融16条）
 
-BASE_SCOPE = "common773"    # 基准样本；跨模型横比用公共样本，不用 full（各模型在 full 上长度不同）
-BASE_MODEL = "HS250"        # 9/18 定案的唯一基准口径
+BASE_SCOPE = "common773"    # 基准样本；模型之间横着比要用公共样本，别用 full（各模型在 full 上长短不一）
+BASE_MODEL = "HS250"        # 9/18 定下来的唯一基准口径
 RATE_COLS = ["d5y_bp", "d10y_bp"]
 
 FACTOR_CN = {"d5y_bp": "5年期美债收益率", "d10y_bp": "10年期美债收益率",
@@ -60,21 +64,17 @@ FACTOR_CN = {"d5y_bp": "5年期美债收益率", "d10y_bp": "10年期美债收�
 
 
 def load_2022_credit_resid() -> float:
-    """从逐事件传导表取 2022 年「未解释残差」的最大绝对值，作为信用区间上端的外推标定量。
+    """去逐事件传导表里捞 2022 年「未解释残差」的最大绝对值，给信用区间上端当外推标定量。
 
-    参数：
-        无。
+    没有入参，返回一个 float，单位 pp：挑出 2022 年、主口径、M2 利率双因子、B 事件前δ、
+    1 日窗那几行，取 dev_credit_pct 绝对值最大的那个，也就是常量 CR_2022_RESID 登记在案的
+    1.1147pp（2022-11-14）。
 
-    返回：
-        float，单位 pp：2022 年、主口径、M2 利率双因子、B 事件前δ、1 日窗各行的
-        dev_credit_pct 绝对值最大值，即常量 CR_2022_RESID 登记的 1.1147pp（2022-11-14）。
-
-    备注：
-        `doas_bp` 序列 2022 年全部缺失（首值 2023-09-06），当年的残差无法拆解为纯信用
-        维度，只能用「未解释残差（信用维度）」这个代理量，不能写成「已用 2022 信用维度
-        残差标定」。口径与信用情景同为 1 日窗。该极值同时是 1 日窗全样本 85 事件窗的
-        最大绝对偏差，故其含义是「1 日窗全样本最大偏差（恰落在 2022 年）」而非
-        「2022 年极值」。
+    doas_bp 这列 2022 年整年是空的（第一个值在 2023-09-06），当年的残差拆不出纯信用这一维，
+    只能拿「未解释残差（信用维度）」当代理量——写报告时别说成「已经用 2022 年信用维度残差
+    标定过」。窗口跟信用情景一样是 1 日。
+    这个极值同时是 1 日窗全样本 85 个事件窗里最大的绝对偏差，所以它的意思是「1 日窗的全样本
+    最大偏差（恰好落在 2022 年）」，不是「2022 年的极值」。
     """
     ev = pd.read_csv(RES / "delta_transmission_events.csv", encoding="utf-8-sig")
     d = ev[(ev.model == "M2 利率双因子") & (ev.caliber == "主")
@@ -84,21 +84,17 @@ def load_2022_credit_resid() -> float:
 
 
 def horizon_es(r: pd.Series, h: int) -> dict:
-    """用重叠窗口算经验 h 日累计损失分布的分位数与 ES。
+    """拿重叠窗口滚出经验上的 h 日累计损失分布，再读它的分位数和 ES。
 
-    参数：
-        r: 组合收益序列（%），主口径传 etf_ret_tr_pct，次口径传 etf_ret_rmb_pct。
-        h: 持有期天数，收益按 h 日滚动求累计。
+    r 是组合收益（%），主口径传 etf_ret_tr_pct，次口径传 etf_ret_rmb_pct；h 是持有期天数，
+    收益按 h 天一段往前滚着相加。
+    返回一个 dict，键是 95 和 99 两个分位点，值是 dict(var=该分位的损失, es=超过这条线的
+    损失的平均值)，都是 float、单位 %、损失记正。
 
-    返回：
-        dict，键为 95 与 99 两个分位点，值为 dict(var=该分位的损失, es=超过该分位的损失的
-        均值)，均为 float、单位 %、损失为正。
-
-    备注：
-        不把 1 日 VaR 乘 √h：本项目近 IGARCH（α+β≈0.996）且存在波动聚集，√t 的 iid 前提
-        不成立，缩放会把一个未经验证的换算当成可比性依据。直接取历史 h 日累计损失的经验分布，
-        与情景损失同为「h 日收益之和」，是同类比较。代价是重叠窗口自相关、有效样本少于名义
-        条数，故只作参照线不做检验。
+    这里没有把 1 日 VaR 乘 √h：本项目的波动率几乎贴着 IGARCH（α+β≈0.996），还有波动聚集，
+    √t 要求收益独立同分布，这个前提不成立，乘出来的只是个没验证过的换算，不能拿来当可比性
+    依据。直接用历史 h 日累计损失的经验分布，跟情景损失一样都是「h 天收益相加」，同类才能比。
+    代价是重叠窗口之间有自相关、有效样本比名义条数少，所以它只当参照线，不用来做检验。
     """
     r = pd.Series(r).dropna().reset_index(drop=True)
     losses = -r.rolling(h).sum().dropna()
@@ -110,14 +106,11 @@ def horizon_es(r: pd.Series, h: int) -> dict:
 
 
 def path_cum_mdd(r: pd.Series) -> tuple[float, float]:
-    """把 log 收益路径折算为累计收益与最大回撤。
+    """把一条 log 收益路径折成累计收益和最大回撤两个数。
 
-    参数：
-        r: 组合收益序列（%），缺失值先剔除。
-
-    返回：
-        (cum, mdd) 二元组，单位 %：cum 为累计收益（正 = 收益），
-        mdd 为最大回撤（≤ 0，含事件前起点 NAV=1.0 的净值口径）。
+    r 是组合收益（%），先把缺值去掉。
+    返回 (cum, mdd) 一对，单位 %：cum 是累计收益（正 = 赚钱），mdd 是最大回撤（≤ 0，
+    净值口径，事件前起点 NAV = 1.0 也算进峰值候选）。
     """
     r = pd.Series(r).dropna().reset_index(drop=True)
     cum = r.cumsum() / 100.0
@@ -126,26 +119,24 @@ def path_cum_mdd(r: pd.Series) -> tuple[float, float]:
 
 
 def main() -> None:
-    """把情景库的因子冲击映射为组合损失，完成测算、贡献度分解与尾部风险判定，落盘三表三图。
+    """把情景库里的因子冲击翻译成组合损失，算完落成三张表三张图，顺带判一遍尾部风险。
 
-    脚本契约：
-        消费：factors/factor_table_nav_tr.csv；results/stress_scenarios.csv、
-              results/factor_exposure.csv（基准 δ(Δ5Y)、δ(Δ10Y)）、
-              results/backtest_results.csv（HS250 @ common773 基准 VaR/ES）、
-              results/delta_transmission_events.csv（经 load_2022_credit_resid 取标定量）。
-        产出：results/stress_impact.csv（逐情景 × 口径的损失/回撤/缓冲/对标长表）、
-              results/stress_factor_contrib.csv（因子贡献度，含未解释残差）、
-              figures/stress_mapping.png、figures/stress_loss_vs_var.png、
-              figures/stress_factor_contrib.png。
-        断言/边界：五处断言，三处对账——2022 残差标定量与 CR_2022_RESID（容差 5e-5pp）、
-        主次口径四个基准配置的 VaR/ES 与阶段二报告 §7.2 登记值（容差 5e-5）、情景库每个
-        情景都进入测算（scenario_id 集合相减不为空即终止，因 9/24 补入的 X2 曾被漏算而设）。
-        另两处为回归守卫：历史情景的信用区间下端不等于窗口累计量（相等说明退回窗口级
-        计算），假设情景的 loss_modeled_pct 与 worst_day_modeled_pct 重合（证明路径确为
-        单日）。
-        已知边界：纯汇率情景主口径损失恒为 0，是美元计价的口径事实；判定线取
-        es_1d_99_pct，与并列输出的 es_hd_99_pct 不是同一个统计量；√t 缩放列只作参考；
-        历史情景不加偏差缓冲。
+    消费：factors/factor_table_nav_tr.csv；results/stress_scenarios.csv、
+          results/factor_exposure.csv（基准 δ(Δ5Y)、δ(Δ10Y)）、
+          results/backtest_results.csv（HS250 @ common773 的基准 VaR/ES）、
+          results/delta_transmission_events.csv（经 load_2022_credit_resid 取标定量）。
+    产出：results/stress_impact.csv（逐情景 × 口径的损失/回撤/缓冲/对标长表）、
+          results/stress_factor_contrib.csv（因子贡献度，未解释残差单列）、
+          figures/stress_mapping.png、figures/stress_loss_vs_var.png、
+          figures/stress_factor_contrib.png。
+    对账：一共五处断言，三处是对账。2022 残差标定量跟常量 CR_2022_RESID 比（容差 5e-5pp）；
+    主次口径四个基准配置的 VaR/ES 跟阶段二报告 §7.2 的登记值比（容差 5e-5）；情景库里每个
+    情景都得进测算（两边 scenario_id 集合相减不为空就直接终止——这条是 9/24 补进来的 X2
+    被漏算之后加的）。剩下两处是回归守卫：历史情景的信用区间下端不能等于窗口累计量（相等
+    就说明又退回窗口级计算了）；假设情景的 loss_modeled_pct 跟 worst_day_modeled_pct 必须
+    重合（证明路径确实只有一天）。
+    边界：纯汇率情景的主口径损失恒为 0，这是美元计价的口径事实；判定线取 es_1d_99_pct，
+    跟并排输出的 es_hd_99_pct 不是同一个统计量；√t 缩放那几列只作参考；历史情景不加偏差缓冲。
     """
     print("=" * 78)
     print("阶段三 Day2–Day3：三路径映射 + 压力测试测算")
@@ -176,8 +167,9 @@ def main() -> None:
     print(f"  !! 子样本不含 2022 年信用冲击 → 只作**假设性传导**，报告一律给区间")
     print(f"  信用缓冲取 {BUFFER_CREDIT:.4f} pp（利率侧保守值，非 M3 自身的 0.1997）")
 
-    # 区间上限的外推标定量：平静样本 CI 只反映估计误差，不反映「平静期系数外推到危机」，
-    # 以 2022 年的实际残差幅度代理。此处重算并与常量对账，上游漂移在此暴露。
+    # 区间上限那个外推标定量：平静样本的 CI 只覆盖估计误差，覆盖不了「平静期的系数拿去
+    # 外推危机」，所以用 2022 年的实际残差幅度来代理。这里重算一遍跟常量对一下，
+    # 上游数据要是变了，在这一行就露出来。
     cr22 = load_2022_credit_resid()
     assert abs(cr22 - CR_2022_RESID) < 5e-5, (
         f"2022 残差标定量对账失败：逐事件表给 {cr22:.4f}pp，常量登记 {CR_2022_RESID:.4f}pp")
@@ -197,8 +189,8 @@ def main() -> None:
         print(f"       {k[0]}口径 {k[1]}%  VaR={v['var']:.4f}%  ES={v['es']:.4f}%")
     print(f"       注意：情景损失本版统一为 {HORIZON_DAYS} 日，与基准**同期限**，倍数可直接比较")
 
-    # 基准数字已登记在阶段二交付报告（docs/phase2_model_validation.md §7.2 表），
-    # 上游漂移在此处暴露。
+    # 这几个基准数字登记在阶段二交付报告里（docs/phase2_model_validation.md §7.2 表），
+    # 上游一变，这里就对不上。
     REGISTERED = {("主", 95): (0.3544, 0.4473), ("主", 99): (0.5361, 0.6659),
                   ("次", 95): (0.4454, 0.5554), ("次", 99): (0.7260, 0.7024)}
     for k, (rv, re_) in REGISTERED.items():
@@ -212,7 +204,7 @@ def main() -> None:
     print(f"逐情景测算（损失为正；历史/补充取窗内最差单日，假设用锚点日 {HORIZON_DAYS} 日路径×倍数）")
     print("=" * 78)
 
-    # 同期限经验分布所需的收益序列（主 = 美元复权，次 = 人民币复权）
+    # 算同期限经验分布要用的收益序列（主 = 美元复权，次 = 人民币复权）
     ret_series = {"主": F["etf_ret_tr_pct"], "次": F["etf_ret_rmb_pct"]}
 
     rows, crows = [], []
@@ -241,9 +233,9 @@ def main() -> None:
         has_rate = float(a5.abs().sum() + a10.abs().sum()) > 1e-12
         has_cr = float(ao.abs().sum()) > 1e-12
         has_fx = float(afx.abs().sum()) > 1e-12
-        # 缓冲只给假设情景：历史情景用窗内实际收益，不含 δ 估算误差，加缓冲等于对
-        # 已知结果重复计一次模型误差；假设情景的损失由 δ 映射得出，才需要亏损侧
-        # 偏差保证金。施加上按情景一次（取适用路径中较大者），不按路径累加。
+        # 缓冲只加在假设情景上。历史情景用的是窗内实际发生的收益，里面没有 δ 的估算误差，
+        # 给它加缓冲等于对着已经知道的结果又算一遍模型误差；假设情景的损失是 δ 映射出来的，
+        # 才有亏损侧偏差要防。加的时候一个情景只加一次，取适用路径里大的那个，不按路径条数累加。
         buf = (max(BUFFER_RATE if has_rate else 0.0,
                    BUFFER_CREDIT if has_cr else 0.0,
                    BUFFER_FX if has_fx else 0.0) if cls == "假设" else 0.0)
@@ -255,50 +247,49 @@ def main() -> None:
             hist = realized is not None and len(realized) > 0
             r_used = pd.Series(realized).dropna().reset_index(drop=True) if hist else r_model
 
-            # 四个损失口径各司其职，不混用：
-            #   loss   窗内累计损失（历史=实现，假设=δ 映射），方向性质与残差用
-            #   mdd    窗内最大回撤（需求文档要求的伴随列，正值 = 回撤/损失）
-            #   wd     窗内最差单日的损失，历史/补充情景的基准
-            #   bench  基准损失：历史取窗内最差单日，假设取 δ 映射的 1 日值
-            # 累计损失与残差仍按累计口径保留：残差度量 δ 模型误差，基准度量 1 日情景
-            # 严重度，两者口径不同是有意的；把残差也改成「基准 − 模型」会把「单日」与
-            # 「窗末累计」两个口径混算。
-            # 符号统一：`path_cum_mdd` 按「净值回撤」原义返回负值，此处取负写入，
-            # 使本表所有损失类列一律正值 = 损失（与 loss_* / worst_day 一致，
-            # 也与已发布文档中「窗内最深 2.6784%」的写法一致）。此前 mdd_pct 是全表
-            # 唯一以负值表示损失的列，容易与同行的正值损失列对错。
+            # 四个损失列各管各的，别混着用：
+            #   loss   窗内累计损失（历史 = 实际发生，假设 = δ 映射），管方向性质和残差
+            #   mdd    窗内最大回撤（需求文档要的伴随列，正值 = 回撤/损失）
+            #   wd     窗内最差单日的损失，历史/补充情景的基准就是它
+            #   bench  基准损失：历史取窗内最差单日，假设取 δ 映射出来的 1 日值
+            # 累计损失和残差还是按累计口径来：残差量的是 δ 模型误差，基准量的是 1 日情景有多重，
+            # 两个口径不一样是有意的。要是把残差改成「基准 − 模型」，就等于把「单日」和
+            # 「窗末累计」两个口径搅到一起算。
+            # 符号统一：`path_cum_mdd` 按「净值回撤」的本义返回负值，这里取个负号写进去，
+            # 让这张表所有损失列一律正值 = 损失（跟 loss_* / worst_day 一致，也跟已发布文档里
+            # 「窗内最深 2.6784%」的写法一致）。以前 mdd_pct 是全表唯一用负值表示损失的列，
+            # 跟同一行里正值表示的损失列摆在一起，很容易看反。
             loss = -path_cum_mdd(r_used)[0]
             mdd = -path_cum_mdd(r_used)[1]
             wd = -float(np.nanmin(r_used.values)) if hist else loss
-            # 最差单日的日期随口径而变（主口径看 USD 复权、次口径另叠汇率项），
-            # 故按口径各自记录，不共用 anchor_date。
+            # 最差单日是哪天会随口径变（主口径看美元复权，次口径还要叠上汇率那一项），
+            # 所以两个口径各记各的，不共用 anchor_date。
             wd_dt = (str(pd.Series(realized).dropna().idxmin().date())
                      if hist else anchor_date)
             loss_model = -float(r_model.sum())
-            # 模型路径的窗内最差单日（1 日口径）。信用区间已改为 1 日量，与此列比对
-            # 才是同期限；拿窗末累计的 loss_model 去比 1 日区间是「累计 vs 单日」口径
-            # 错配。假设情景路径即 1 日，两列重合。
+            # 模型路径自己的窗内最差单日（1 日量）。信用区间已经统一成 1 日量，拿这一列去比
+            # 才是同期限；要是拿窗末累计的 loss_model 去比 1 日区间，就是「累计跟单日」对不上
+            # 口径。假设情景的路径本来就只有一天，所以两列数值一样。
             wd_model = -float(np.nanmin(r_model.values)) if hist else loss_model
             bench = wd if hist else loss
             bench_src = "窗内最差单日" if hist else "δ 映射"
             residual = loss - loss_model if hist else 0.0
 
-            # 信用传导区间：下端取平静样本弱传导，上端取「平静样本强传导 + 2022 年
-            # 残差极值」。上端不再叠加缓冲：2022 残差标定本身就是用实际偏差修正上限，
-            # 再叠一次 0.3365pp 是重复计算。
-            # 期限与基准损失列一致：历史/补充情景取窗内最差单日，假设情景的 δ 映射
-            # 路径本身即 HORIZON_DAYS 日，两者同为单日量。此前一律取窗末累计，使历史
-            # 情景的信用区间成为窗口级量、与 1 日基准不可比（`docs/week3_report.md`
-            # §6.5 第 1 条，已修复）。
+            # 信用传导区间：下端用平静样本的弱传导，上端用「平静样本强传导 + 2022 年残差
+            # 极值」。上端不再加缓冲——2022 残差标定本身就是拿实际偏差修的上限，再加一次
+            # 0.3365pp 就是算重了。
+            # 期限跟基准损失列保持一致：历史/补充情景取窗内最差单日，假设情景的 δ 映射路径
+            # 本来就只有 HORIZON_DAYS 天，两边都是单日量。以前一律取窗末累计，历史情景的信用
+            # 区间就成了窗口级量、没法跟 1 日基准比（`docs/week3_report.md` §6.5 第 1 条，已修复）。
             cr_lo_path = r_rate + r_cr_hi + fx_term
             cr_hi_path = r_rate + r_cr_lo + fx_term
-            cr_lo_win = -path_cum_mdd(cr_lo_path)[0]      # 窗口级（旧口径，留作断言对照）
+            cr_lo_win = -path_cum_mdd(cr_lo_path)[0]      # 窗口级（旧口径，留着给断言做对照）
             cr_hi_win = -path_cum_mdd(cr_hi_path)[0]
             cr_lower = (-float(np.nanmin(cr_lo_path.values)) if hist else cr_lo_win)
             cr_upper = (-float(np.nanmin(cr_hi_path.values))
                         if hist else cr_hi_win) + CR_2022_RESID
-            # 历史情景窗长 > 1 日时，1 日量必与窗口累计量不同；两者相等说明上面又退回
-            # 窗口级计算（本挂账项的回归）。比对输出列发现不了这种回归——旧窗口级值
+            # 历史情景窗长超过 1 天时，1 日量跟窗口累计量不可能相等；一旦相等，就说明上面又
+            # 退回窗口级计算了（这个挂账项的回归）。光比对输出列是发现不了的——旧的窗口级值
             # 同样满足「下端 ≤ 点估计」。
             if hist and has_cr and len(cr_lo_path) > 1:
                 assert abs(cr_lower - cr_lo_win) > 1e-12, (
@@ -306,9 +297,9 @@ def main() -> None:
 
             v95, v99 = base[(cal, 95)], base[(cal, 99)]
             net = bench + buf
-            # 本脚本在全样本上算的无条件经验分布。1 日口径下它与阶段二基准
-            # es_1d_99_pct 是两个不同统计量（样本起点、条件/无条件均不同），
-            # 故并列输出作核对，判定用 es_1d_99_pct。
+            # 这是本脚本在全样本上现算的无条件经验分布。1 日口径下它跟阶段二的基准
+            # es_1d_99_pct 不是同一个统计量（样本起点不一样，一个条件一个无条件），
+            # 所以并排列出来供核对，判定还是用 es_1d_99_pct。
             hd = horizon_es(ret_series[cal], horizon)
             rows.append(dict(
                 scenario_id=sid, scenario_class=cls, scenario_name=name,
@@ -326,11 +317,11 @@ def main() -> None:
                                 else ("历史情景取实际路径，无模型误差不加缓冲" if cls != "假设"
                                       else "纯汇率情景口径搬运，恒等式不加缓冲")),
                 mdd_pct=round(mdd, 4),
-                # 1 日锚点路径只有一天，回撤退化为损失的单调换形，不含额外信息。
-                # 需求文档要求给回撤，故保留该列并显式标注退化，不参与严重度解读。
+                # 1 日锚点路径就一天，回撤退化成损失的单调变换，没有额外信息。需求文档要求
+                # 给回撤列，所以留着并写明它退化了，读严重度的时候别当回事。
                 mdd_note=("1 日锚点路径为单点，回撤 = 1 − exp(损失)，与基准同信息、不含额外信息"
                           if cls == "假设" else ""),
-                # 区间下端=平静样本弱传导；上端=平静强传导+2022 残差极值，不含缓冲
+                # 区间下端 = 平静样本弱传导；上端 = 平静强传导 + 2022 残差极值，都不含缓冲
                 credit_range_lo_pct=round(cr_lower, 4) if has_cr else np.nan,
                 credit_range_hi_pct=round(cr_upper, 4) if has_cr else np.nan,
                 credit_range_note=("参考项：上限由 2022 年未解释残差极值标定，"
@@ -345,17 +336,17 @@ def main() -> None:
                 x_hd_es99=round(net / hd[99]["es"], 3),
                 tail_flag_hd="是" if net > hd[99]["es"] else "否",
                 tail_flag="是" if net > v99["es"] else "否",
-                # 「纯」汇率情景指汇率是唯一驱动。历史情景窗内也含汇率项，
-                # 只用 has_fx 判定会把 H1/H2/H3/X1/X2 的主口径行误贴该注释。
+                # 「纯」汇率情景指的是汇率是唯一驱动。历史情景窗内也有汇率项，只看 has_fx
+                # 的话，H1/H2/H3/X1/X2 的主口径行会被错贴上这条注释。
                 fx_horizon_note=("纯汇率情景，主口径按口径恒为 0"
                                  if (has_fx and not has_rate and not has_cr and cal == "主")
                                  else ""),
             ))
 
-            # 因子贡献度：分解对象是基准损失那一口径（历史 = 最差单日，假设 = 1 日映射）。
-            # 故历史情景取该口径最差日当天的因子变动，而非整个事件窗的累计变动，
-            # 否则会出现「用窗口级因子变动解释单日损失」的错配，share_pct 失去意义。
-            # 最差日随口径而变，贡献度按口径分别计算。
+            # 因子贡献度：分解的对象是基准损失那个口径（历史 = 最差单日，假设 = 1 日映射）。
+            # 所以历史情景取的是该口径最差日当天的因子变动，不是整个事件窗的累计变动；否则
+            # 就成了「拿窗口级的因子变动去解释单日损失」，share_pct 也就没意义了。
+            # 最差日会随口径变，贡献度也按口径各算一份。
             wp = (worst_pos or {}).get(cal)
             if hist:
                 s5, s10 = float(a5.iloc[wp]), float(a10.iloc[wp])
@@ -366,10 +357,10 @@ def main() -> None:
             c5, c10 = -(s5 * d5), -(s10 * d10)
             ccr = -(so * b_oas)
             cfx = -(sfx if cal == "次" else 0.0)
-            # 残差口径与分解对象一致：历史情景 = 最差单日实际损失 − 当天因子映射之和；
-            # 假设情景损失本身就是模型输出，恒为 0。
-            # H1/H2/X1/X2 窗内 doas_bp 缺数据，当天信用项按 0 计入、影响落进本列，
-            # 故这些情景的残差 ≠ CR_2022_RESID。
+            # 残差的口径跟分解对象对得上：历史情景 = 最差单日的实际损失 − 当天各因子映射
+            # 之和；假设情景的损失本身就是模型输出，所以残差恒为 0。
+            # H1/H2/X1/X2 窗内 doas_bp 缺数，当天的信用项按 0 算，差额就落进这一列，
+            # 所以这几个情景的残差 ≠ CR_2022_RESID。
             c_resid = (wd - (c5 + c10 + ccr + cfx)) if hist else 0.0
             parts = [("d5y_bp", c5), ("d10y_bp", c10), ("doas_bp", ccr),
                      ("fx_ret_pct", cfx), ("residual", c_resid)]
@@ -381,7 +372,7 @@ def main() -> None:
                                   contribution_pct=round(val, 4),
                                   share_pct=round(abs(val) / tot * 100, 2) if tot > 1e-12 else 0.0))
 
-        # 进度行（与落表口径一致：历史走实际路径，假设走映射路径）
+        # 进度行（口径跟落表一致：历史走实际路径，假设走映射路径）
         p_main = (pd.Series(realized_main).dropna().reset_index(drop=True)
                   if (realized_main is not None and len(realized_main) > 0) else r_rate + r_cr_pt)
         p_rmb = (pd.Series(realized_rmb).dropna().reset_index(drop=True)
@@ -394,16 +385,18 @@ def main() -> None:
               f"  回撤={-d_main:+7.4f}%  基准(最差单日)={_bench:+7.4f}%  缓冲={buf:.4f}pp")
 
     # ---- 历史与补充情景：实际路径 ----
-    # 情景清单从 CSV 读，不硬编码：否则情景库扩容（如 9/24 补入 X2）会被漏算。
+    # 情景清单一律从 CSV 读，不写死。写死的话，情景库一扩容（比如 9/24 补进来的 X2）
+    # 就会被漏掉。
     HIST_IDS = (S[(S.measure == "cum_window") & (S.scenario_class.isin(["历史", "补充"]))]
                 .scenario_id.drop_duplicates().tolist())
     for sid in HIST_IDS:
         g = S[(S.scenario_id == sid) & (S.measure == "cum_window")]
         a, b = g.window_start.iloc[0], g.window_end.iloc[0]
         W = F.loc[a:b]
-        # 最差单日在路径中的位置：主口径看 USD 复权、次口径另叠汇率项，两者可以不同日，
-        # 故按口径分别给出，供贡献度分解取当天因子值。
-        # np.nanargmin 作用在全窗（未 dropna）列上，位置即与上面三个路径 DataFrame 对齐。
+        # 最差单日在路径里排第几天：主口径看美元复权，次口径还要叠汇率项，两个口径可能不是
+        # 同一天，所以各给一份，供贡献度分解去取当天的因子值。
+        # np.nanargmin 是在全窗（没 dropna）那列上取的位置，这样位置才跟上面三个路径
+        # DataFrame 对得上。
         worst_pos = {"主": int(np.nanargmin(W["etf_ret_tr_pct"].values)),
                      "次": int(np.nanargmin(W["etf_ret_rmb_pct"].values))}
         add(sid, g.scenario_class.iloc[0], g.scenario_name.iloc[0],
@@ -417,9 +410,9 @@ def main() -> None:
 
     # ---- 假设情景：锚点日 1 日路径 × 倍数 ----
     for sid in sorted(S[S.scenario_class == "假设"].scenario_id.unique()):
-        # 过滤 measure 不能省：假设情景同时存有 peak_1d（主口径）与 peak_3d（附录对照）
-        # 两组行，不过滤会两套行都进循环。下面 paths[col] 是按因子名赋值的字典，
-        # 后写入者覆盖前者，会把 3 日锚点当成 1 日锚点用且不报错。
+        # measure 这个过滤不能省。假设情景在库里同时存着 peak_1d（主口径）和 peak_3d
+        # （附录对照）两组行，不滤的话两组都会进循环。下面的 paths[col] 是按因子名赋值的
+        # 字典，后写的把先写的盖掉，结果是拿 3 日锚点当 1 日锚点用，而且不会报错。
         g = S[(S.scenario_id == sid) & (S.measure == "peak_1d")]
         nm, lead = g.scenario_name.iloc[0], g.lead_direction.iloc[0]
         mult, sev = float(g.multiple.iloc[0]), g.scenario_name.iloc[0].split("·")[-1]
@@ -436,19 +429,18 @@ def main() -> None:
 
     I = pd.DataFrame(rows)
     C = pd.DataFrame(crows)
-    # 完整性断言：情景库里的每个情景都要进测算，缺一个即终止。
-    # 情景清单曾在上一步里被硬编码，9/24 补入的 X2 因此漏算，直到覆盖度检验才发现。
+    # 完整性断言：情景库里每个情景都得进测算，少一个就终止。
+    # 之前情景清单在上一段里被写死过，9/24 补进来的 X2 因此漏算，一直到做覆盖度检验才发现。
     _missing = set(S.scenario_id.unique()) - set(I.scenario_id.unique())
     assert not _missing, (f"情景库有 {S.scenario_id.nunique()} 个情景，"
                           f"以下未进入测算：{sorted(_missing)}")
     print(f"\n  [对账] 情景库 {S.scenario_id.nunique()} 个情景全部进入测算（无静默漏算）")
 
-    # 信用区间口径一致性对账。
-    # 那次修订只应改动历史与补充情景的区间：假设情景的 δ 映射路径本来就是单日，
-    # 其区间前后应逐值不变。故下面的断言把「假设情景路径确为单日」钉住：
-    # loss_modeled_pct 与 worst_day_modeled_pct 重合即证明路径长度为 1，其区间
-    # 天然是 1 日量。历史情景的分支是否真的生效由 add() 内的回归断言负责，
-    # 输出列本身区分不了两种口径。
+    # 信用区间的口径一致性对账。
+    # 那次修订只该动历史与补充情景的区间：假设情景的 δ 映射路径本来就是单日，区间应该逐值
+    # 不变。所以下面这条断言把「假设情景的路径确实是单日」钉死：loss_modeled_pct 跟
+    # worst_day_modeled_pct 重合，就说明路径长度是 1，它的区间天生就是 1 日量。历史情景那个
+    # 分支到底有没有生效，归 add() 里的回归断言管——光看输出列分不出这两种口径。
     _cr = I[I.credit_range_lo_pct.notna()]
     _hy = _cr[_cr.scenario_class == "假设"]
     if len(_hy):
@@ -483,7 +475,7 @@ def main() -> None:
         ["scenario_id", "scenario_name", "caliber", "worst_day_loss_pct",
          "buffer_pct", "loss_after_buffer_pct", "es_1d_99_pct", "x_es99"]]
     print(T.to_string(index=False) if len(T) else "  （无）")
-    # 分母从测算表取，不写死：情景库扩容后写死的分母会变成错的
+    # 分母从测算表里数出来，不写死：情景库一扩容，写死的分母就是错的
     n_hit = int(((I.tail_flag == "是") & (I.loss_after_buffer_pct > 0)).sum())
     n_hit_emp = int(((I.tail_flag_hd == "是") & (I.loss_after_buffer_pct > 0)).sum())
     print(f"\n  超出 1 日 99% ES 的情景 {n_hit} / {len(I)} 条（口径×情景，"
@@ -491,16 +483,16 @@ def main() -> None:
     print(f"  **判定对阈值口径敏感**：同一份损失若改用全样本无条件经验 ES"
           f"（样本更长、值更大），命中数变为 {n_hit_emp} 条，相差 {n_hit - n_hit_emp} 条 —— "
           f"该敏感性须随结论一并披露，不让读者自行发现")
-    # 方向性质按窗内累计口径判定，与基准损失口径分开：
-    # H2/X1 的窗内累计为正（收益），但其基准损失取窗内最差单日，两者口径不同，
-    # 前者说明情景性质、后者进入严重度统计，不能互相替代。
+    # 方向性质是按窗内累计口径判的，跟基准损失口径分开：
+    # H2/X1 的窗内累计是正的（赚钱），但它们的基准损失取的是窗内最差单日，两个口径不同。
+    # 前一个说的是情景是什么性质，后一个才进严重度统计，别拿一个替另一个。
     n_neg = int((I.loss_realized_pct < 0).sum())
     n_bench_pos = int(((I.loss_realized_pct < 0) & (I.benchmark_loss_pct > 0)).sum())
     print(f"\n  窗内累计为收益的情景 {n_neg} 条 —— 累计口径的收益性质如实保留")
     print(f"  其中基准损失（窗内最差单日）为正、即仍进入损失统计的 {n_bench_pos} 条 —— "
           f"两口径含义不同，不可互相替代")
-    # 命中率过高本身要说明：压力情景按构造就该比 VaR 更极端，二值「是否超限」
-    # 因此在 1 日口径下几乎失去区分度，正文改以倍数为主要统计量。
+    # 命中率太高这件事本身要交代：压力情景按构造就该比 VaR 更极端，所以「是否超限」这个
+    # 是或否的判断在 1 日口径下几乎分不出谁是谁，正文改成看「相当于几倍」。
     print(f"  说明：1 日口径下命中率 {n_hit}/{len(I)}，压力情景按构造即应超过 VaR；"
           f"二值判定的区分度下降，正文以「相当于几倍 99% ES」为主导统计量")
 
@@ -538,13 +530,13 @@ def main() -> None:
         sb = I[(I.caliber == cal) & (I.loss_after_buffer_pct > 0)].copy()
         sb = sb.sort_values("loss_after_buffer_pct", ascending=False).head(14)
         y = np.arange(len(sb))[::-1]
-        # 两个条形都以基准损失为基：历史情景取窗内最差单日、假设情景取 δ 映射值。
-        # 历史情景不施缓冲（无 δ 估计误差），故两根条形重合；假设情景的差即缓冲。
+        # 两个条形都从基准损失起画：历史情景取窗内最差单日，假设情景取 δ 映射值。历史情景
+        # 不加缓冲（没有 δ 估计误差），所以两根条形重合；假设情景两根之间的差就是缓冲。
         ax.barh(y, sb["loss_after_buffer_pct"], color=C_M1, height=0.62, label="基准损失 + 偏差缓冲")
         ax.barh(y, sb["benchmark_loss_pct"], color=C_GREY, height=0.62,
                 label="基准损失（历史=窗内最差单日，假设=δ 映射）")
-        # 判定线：全部情景同为 1 日口径，故是一条共用的竖线（阶段二 1 日 99% ES），
-        # 不逐情景取各自窗口长度的分位。
+        # 判定线：所有情景都是 1 日口径，所以画一条共用的竖线（阶段二 1 日 99% ES）就行，
+        # 不用逐个情景去取各自窗口长度的分位。
         ax.scatter(sb["es_1d_99_pct"], y, marker="D", s=26, color=C_GARCH, zorder=5,
                    label="1 日 99% ES（阶段二基准）")
         ax.set_yticks(y)
@@ -565,8 +557,8 @@ def main() -> None:
     print("[图] figures/stress_loss_vs_var.png")
 
     # 图 3：因子贡献度
-    # 不共享 y 轴：主口径下纯汇率情景损失恒为 0、不进本图，两个面板的情景集合不同，
-    # sharey 会让刻度标签被其中一个面板接管、条形与标签错位。
+    # 两个面板不共享 y 轴：主口径下纯汇率情景损失恒为 0、进不了这张图，两个面板的情景集合
+    # 不一样，sharey 会让刻度标签被其中一个面板接管，条形跟标签就对错了。
     fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.4))
     colmap = {FACTOR_CN["d5y_bp"]: C_M1, FACTOR_CN["d10y_bp"]: C_GARCH,
               FACTOR_CN["doas_bp"]: C_ALT, FACTOR_CN["fx_ret_pct"]: C_GREY,
@@ -580,7 +572,7 @@ def main() -> None:
         piv = piv.reindex([s for s in order.sort_values(ascending=False).index if s in piv.index])
         bottom = np.zeros(len(piv))
         for c in piv.columns:
-            # 残差不是因子，用纹理而非又一个灰色区分：颜色上不应和汇率抢同一个槽位
+            # 残差不是因子，用斜纹而不是再加一个灰色来区分：颜色上不该跟汇率抢同一个槽位
             if c == FACTOR_CN["residual"]:
                 ax.barh(np.arange(len(piv))[::-1], piv[c], left=bottom, height=0.62,
                         facecolor="#e8e7e3", edgecolor="#8f8e8a", hatch="///", lw=0.5, label=c)
@@ -601,8 +593,8 @@ def main() -> None:
     h, l = axes[0].get_legend_handles_labels()
     fig.legend(h, l, loc="upper center", ncol=5, frameon=False, bbox_to_anchor=(0.5, 0.955),
                fontsize=8)
-    # 标题自带两条边界：残差是拟合误差不是信用风险贡献；纯汇率情景的 100% 是口径定义。
-    # 这张图会被单独抽进汇报材料，脱离正文时这两条要跟着图走。
+    # 标题里自带两条边界：残差是拟合误差、不是信用风险的贡献；纯汇率情景的 100% 是口径
+    # 定义。这张图会被单独抽出来放进汇报材料，脱离正文的时候这两条得跟着图走。
     fig.suptitle("因子贡献度分解（按 |贡献| 归一；残差单列为拟合误差、非信用风险贡献；"
                  "纯汇率情景汇率 100% 系口径定义）",
                  fontsize=12, y=0.995)

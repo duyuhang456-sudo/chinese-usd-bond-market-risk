@@ -1,11 +1,11 @@
-"""美国国债收益率曲线下载（treasury.gov，日度）
+"""美国国债收益率曲线下载（treasury.gov，日度）（阶段一 第 1 天 · 9/7）
 
-消费：无（需联网）
-产出：raw_data/ 下的美债收益率曲线日度表（1 Mo–30 Yr 各期限到期收益率）
-口径：覆盖需求文档第 3.1 节数据源。URL 模板（site 改版后需带 query 参数）：
+消费：无（要联网）
+产出：raw_data/treasury_yield_curve.csv（1 Mo–30 Yr 各期限的到期收益率）
+口径：覆盖需求文档第 3.1 节数据源。URL 模板（网站改版后必须带 query 参数）：
       /daily-treasury-rates.csv/{year}/all?type=daily_treasury_yield_curve
       &field_tdr_date_value={year}&_format=csv
-      按年份（2021..今年）抓取后拼接、去重，并按近 5 年窗口截取。
+      按年份（2021..今年）一年一年抓，拼起来、去重，再截到近 5 年窗口。
 用法：./.venv/bin/python code/download_treasury.py
 """
 from __future__ import annotations
@@ -29,13 +29,9 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (research script)"}
 
 
 def download_one_year(year: int) -> pd.DataFrame:
-    """下载某一整年的国债收益率曲线。
+    """下载某一整年的国债收益率曲线。year 是年份，比如 2022。
 
-    参数：
-        year: 年份，如 2022。
-
-    返回：
-        该年的原始 CSV 内容，列为各期限（1 Mo … 30 Yr）与 Date，未做清洗与截取。
+    返回那一年的原始 CSV 内容，列是各期限（1 Mo … 30 Yr）加 Date，既没清洗也没截窗。
     """
     url = BASE.format(year=year)
     r = requests.get(url, headers=HEADERS, timeout=90)
@@ -44,11 +40,10 @@ def download_one_year(year: int) -> pd.DataFrame:
 
 
 def download_treasury() -> pd.DataFrame:
-    """下载 2021 年至今的全部国债收益率曲线，拼接去重后归档。
+    """下载 2021 年至今的全部国债收益率曲线，拼起来去重后归档。
 
-    返回：
-        拼接、按日期升序去重（保留最后一条）、截到 START 之后的长表，
-        已写入 raw_data/treasury_yield_curve.csv。Date 列已改名为 date。
+    返回一张长表：按日期升序排好，同一天只留最后一条，截到 START 之后；也已写进
+    raw_data/treasury_yield_curve.csv（Date 列改名成了 date）。
     """
     frames = []
     for year in YEARS:

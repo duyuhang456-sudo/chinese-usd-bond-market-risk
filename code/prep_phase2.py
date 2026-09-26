@@ -1,4 +1,4 @@
-"""阶段二 Day1 建模准备：基线 VaR / 因子暴露 / 协方差校验 / 平稳-高波动分段 / 存疑日清单
+"""建模准备：基线 VaR、因子暴露、协方差校验、平稳/高波动分段、存疑日清单（阶段二 Day1 · 9/14）
 
 消费：factors/factor_table_nav_tr.csv（正式输入，复权 USD 总收益主口径；除权表
       factor_table_nav.csv 只留作对照与审计底表）、events/risk_events_timeline.csv、
@@ -7,12 +7,14 @@
       factor_corr.csv（因子相关矩阵）、regimes.csv（逐日滚动 60 日年化实现波动 +
       平稳/高波动标注）、doubtful_days.csv（阶段一 16 条存疑异常日）；
       figures/phase2_rollvol_regimes.png
-口径：主口径 = USD 本位复权收益 etf_ret_tr_pct（δ_fx=0，VaR 上报口径）；人民币次口径见
-      results/baseline_var_tr.csv 对照表（build_tr_factors.py 产出）。VaR 只在无条件正态
-      下算，不含 GARCH 与历史模拟。波动分段有两个触发：慢性态为 60 日滚动年化 σ ≥ 全样本
-      2/3 分位；危机窗为事件日前后各 7 个自然日内 |日收益| 触及 1.2%（4.51 × 主口径日
-      σ 0.266）则整窗记高波动，由实现收益触发，不人工挑日子。前 59 个交易日凑不满 60 日窗，
-      用 expanding σ 顶替。存疑日只按 verdict 含「存疑」二字筛，不改判、不合并。
+口径：收益一律用复权 USD 总收益 etf_ret_tr_pct，汇率暴露 δ 记 0，这是 VaR 上报的口径。
+      人民币次口径的对照表在 results/baseline_var_tr.csv（build_tr_factors.py 产出）。
+      这步的 VaR 只算无条件正态，不含 GARCH 和历史模拟。高波动段有两个触发：慢性态看
+      60 日滚动年化 σ 有没有到全样本 2/3 分位；危机窗看事件日前后各 7 个自然日里
+      |日收益| 有没有碰到 1.2%（4.51 × 主口径日 σ 0.266），碰到就整窗记高波动。两种都
+      由实际收益触发，不人工挑日子。
+边界：前 59 个交易日凑不满 60 日窗，用 expanding σ 顶替，那一段的滚动波动跟后面不是
+      同一种算法。存疑日清单只按 verdict 里有没有「存疑」两字筛，只标注不改数，也不合并。
 用法：./.venv/bin/python code/prep_phase2.py
 """
 from __future__ import annotations
@@ -32,37 +34,32 @@ from common import CLEAN, FACT, RES, FIG, EVENTS_CSV, ensure_dirs
 
 ensure_dirs()
 
-Q_HIGH = 2 / 3          # 高波动 = 滚动年化波动 ≥ 全样本 2/3 分位
-RV_WIN = 60             # 滚动实现波动窗口（交易日）
+Q_HIGH = 2 / 3          # 慢性高波动的线：滚动年化波动到全样本 2/3 分位就算高
+RV_WIN = 60             # 滚动波动的窗口，60 个交易日
 Z = {"95%": 1.6449, "99%": 2.3263}
 
 
 def main() -> None:
-    """为阶段二备齐基线 VaR、因子暴露、协方差校验、波动分段与存疑日清单。
+    """为阶段二备齐基线 VaR、因子暴露、协方差校验、波动分段和存疑日清单。
 
-    脚本契约：
-        消费：factors/factor_table_nav_tr.csv（复权 USD 总收益主口径表，用 date、
-              etf_ret_tr_pct、d5y_bp、d10y_bp、etf_spread_proxy_tr_pct 五列）、
-              events/risk_events_timeline.csv（date、event_cn）、
-              clean_data/outlier_judgment.csv（verdict 含「存疑」的行）。
-        产出：results/baseline_var.csv（无条件正态基线，含观测数、日σ、年化σ，
-              95%/99% 两行各给忽略均值与含均值的 VaR）、
-              results/factor_exposure.csv（四个因子各一行：暴露δ 与含义）、
-              results/factor_corr.csv（Δ5Y / Δ10Y / 利差代理的相关系数矩阵）、
-              results/regimes.csv（date、rv60_ann_%、chronic_high、crisis_window、regime）、
-              results/doubtful_days.csv（阶段一判为存疑的异常日）、
-              figures/phase2_rollvol_regimes.png（60 日滚动年化波动 + 高波动段阴影）。
-        断言/边界：无硬断言，但有几处口径边界。VaR 只在无条件正态下算，不含 GARCH 或历史模拟。
-              波动分段取两种触发：慢性态为 60 日滚动年化 σ 不低于全样本 2/3 分位；危机窗为事件日
-              前后各 7 个自然日内 |日收益| 触及 1.2%（约 4.5 倍主口径日σ）则整窗记高波动，
-              不靠人工挑日子。前 59 个交易日凑不满 60 日窗口，用 expanding σ 顶替。
-              存疑日清单只按 verdict 里是否含「存疑」二字筛，不改判、不合并。
+    从 factor_table_nav_tr.csv 取 date、etf_ret_tr_pct、d5y_bp、d10y_bp、
+    etf_spread_proxy_tr_pct 五列，从 events/risk_events_timeline.csv 取 date 和 event_cn，
+    再从 clean_data/outlier_judgment.csv 里挑 verdict 含「存疑」的行。
+
+    写出来的是：baseline_var.csv（无条件正态基线，含观测数、日 σ、年化 σ，95%/99% 两行
+    各给忽略均值和含均值两个 VaR）、factor_exposure.csv（四个因子各一行，暴露 δ 加含义）、
+    factor_corr.csv（Δ5Y / Δ10Y / 利差代理的相关系数矩阵）、regimes.csv（date、rv60_ann_%、
+    chronic_high、crisis_window、regime）、doubtful_days.csv（阶段一判为存疑的异常日），
+    以及 figures/phase2_rollvol_regimes.png（60 日滚动年化波动叠高波动段阴影）。
+
+    没有硬断言，边界就几条：VaR 只算无条件正态，不含 GARCH 和历史模拟；分段口径见模块头；
+    存疑日只筛不改判、不合并。
     """
     F = pd.read_csv(FACT / "factor_table_nav_tr.csv", parse_dates=["date"]).set_index("date")
-    r = F["etf_ret_tr_pct"].dropna()          # 主口径：复权 USD 总收益（正式 VaR 标的序列）
+    r = F["etf_ret_tr_pct"].dropna()          # 主口径：复权 USD 总收益，VaR 就在这串上算
     print(f"[输入] factor_table_nav_tr rows={len(F)}  复权 USD 收益 n={len(r)}")
 
-    # ---- 1) 基线：无条件正态 VaR（1 日，USD 本位） ----
+    # ---- 1) 基线：1 日持有、USD 本位的无条件正态 VaR ----
     mu, sd = float(r.mean()), float(r.std())
     rows = []
     for cl, z in Z.items():
@@ -78,7 +75,7 @@ def main() -> None:
     print(bl.to_string(index=False))
 
     # ---- 2) 因子暴露 δ 与协方差校验 ----
-    # 主口径：复权收益 ≡ β5·Δ5Y + β10·Δ10Y + 1·利差代理（同日 TR 剥离，见 build_tr_factors.py）
+    # 复权收益按同日口径拆成 β5·Δ5Y + β10·Δ10Y + 1·利差代理，拆法见 build_tr_factors.py
     y = F["etf_ret_tr_pct"]
     X = sm.add_constant(pd.DataFrame({
         "d5y_bp": F["d5y_bp"], "d10y_bp": F["d10y_bp"]}))
@@ -92,9 +89,9 @@ def main() -> None:
         "Δ10Y_bp": F["d10y_bp"],
         "利差代理_%": F["etf_spread_proxy_tr_pct"],
     }).dropna()
-    Sigma = fac.cov()                                   # 因子协方差矩阵
-    dvec = pd.Series({"Δ5Y_bp": b5, "Δ10Y_bp": b10, "利差代理_%": 1.0})   # δ
-    sig_p = float(np.sqrt(dvec.values @ Sigma.values @ dvec.values))       # δ'Σδ
+    Sigma = fac.cov()  # 三个因子的协方差矩阵
+    dvec = pd.Series({"Δ5Y_bp": b5, "Δ10Y_bp": b10, "利差代理_%": 1.0})  # 上面的暴露 δ
+    sig_p = float(np.sqrt(dvec.values @ Sigma.values @ dvec.values))  # δ'Σδ，模型给出的日 σ
     expo = pd.DataFrame({
         "因子": ["利率 Δ5Y", "利率 Δ10Y", "信用利差代理", "汇率 CNY/USD"],
         "暴露δ": [b5, b10, 1.0, 0.0],
@@ -113,19 +110,19 @@ def main() -> None:
     print(corr.to_string())
 
     # ---- 3) 平稳/高波动分段 ----
-    # 3a) 慢性高波动态：滚动 60 日年化实现波动 ≥ 全样本 2/3 分位（集中 2022-23 结构性高波动）
+    # 3a) 慢性态：60 日滚动年化波动到全样本 2/3 分位就算高，高波动基本落在 2022-23 那两年
     rv = r.rolling(RV_WIN).std() * np.sqrt(252)
     th = float(rv.quantile(Q_HIGH))
     head = r.index[:RV_WIN - 1]
-    exp = r.expanding().std().iloc[:RV_WIN - 1] * np.sqrt(252)   # 开头不足 60 日用 expanding
+    exp = r.expanding().std().iloc[:RV_WIN - 1] * np.sqrt(252)   # 前 59 天窗没满，先用 expanding 顶着
     rv.loc[head] = exp.values
     chronic = (rv >= th)
 
-    # 3b) 急性危机窗：事件时间线前后各 7 个自然日（约 ±5 交易日），窗内 |NAV 日收益| 达
-    #     1.2%（4.51 × 日 σ）则整窗记危机。由实现收益触发，不靠人工挑日子，可复现；
-    #     捕捉 2025-04 关税这类短促冲击。
+    # 3b) 危机窗：事件日前后各 7 个自然日（差不多 ±5 个交易日），窗里只要有哪天
+    #     |日收益| 到 1.2%（4.51 × 日 σ）就把整窗记成危机。触发靠实际收益，不靠人挑日子，
+    #     换个样本也能复现；2025-04 关税那种几天就过去的冲击就是它抓的。
     ev = pd.read_csv(EVENTS_CSV, parse_dates=["date"])
-    CRISIS_BAR = 1.2                       # %（≈4.5 × 主口径日σ 0.266，复权后略升）
+    CRISIS_BAR = 1.2                       # %（≈4.5 × 主口径日 σ 0.266，复权之后略高一点）
     crisis = pd.Series(False, index=r.index)
     ev_hit: list[str] = []
     rv_abs = r.abs()
@@ -152,14 +149,14 @@ def main() -> None:
     for s in ev_hit:
         print(f"      · {s}")
 
-    # ---- 4) 16 条「存疑」异常日清单（供 9/17 复核） ----
+    # ---- 4) 16 条「存疑」异常日，整理出来供 9/17 复核 ----
     j = pd.read_csv(CLEAN / "outlier_judgment.csv", encoding="utf-8-sig")
     d = j[j["verdict"].astype(str).str.contains("存疑", na=False)].copy()
     d.to_csv(RES / "doubtful_days.csv", index=False, encoding="utf-8-sig")
     print(f"\n[4] 存疑日 → results/doubtful_days.csv  共 {len(d)} 条"
           f"（{d['series'].value_counts().to_dict()}）")
 
-    # ---- 图：滚动实现波动 + 高波动阴影 ----
+    # ---- 图：滚动波动曲线 + 高波动段阴影 ----
     fig, ax = plt.subplots(figsize=(12, 4.6))
     ax.plot(regime["date"], regime["rv60_ann_%"], lw=0.9, color="#4C72B0",
             label=f"{RV_WIN}日滚动年化波动")

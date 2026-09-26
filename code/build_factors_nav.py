@@ -3,14 +3,14 @@
 消费：clean_data/ 下的 treasury_yield_curve_clean.csv、fred_DEXCHUS_clean.csv、
       fred_BAMLEMIBHGCRPIOAS_clean.csv、nav_9141HK_clean.csv、benchmark_9141HK_clean.csv
 产出：factors/factor_table_nav.csv、figures/spread_factor_vs_oas_nav.png
-口径：9141.HK 市价报价陈旧（~63% 零收益日），日度 VaR 会被系统性低估（~24%，对照实验见
-      docs/staleness_remedy.md），故组合收益改用官方 NAV 日度（零收益仅 ~6%）。与市价口径
-      factor_table.csv 有三处差异：收益序列换成每单位资产净值(USD) 的对数收益；时序对齐用
-      lag=0 同日剥离（NAV 与美股同日估值，市价口径才用 lag=1），NAV 同日口径利率剥离
-      R²=0.668、真实久期≈3.7y，市价 lag1 仅 0.23/1.74y；利差代理对同日 ΔOAS。列结构与
-      factor_table.csv 一致：date、d5y_bp、d10y_bp、fx_ret_pct、etf_ret_pct、
-      etf_rate_attrib_pct、etf_spread_proxy_pct、oas_bp、doas_bp。
-边界：OAS 是 EM 级非紧基准，ρ 与命中率只作参考，且该列 2023-09 之前为空。
+口径：9141.HK 的市价报价陈旧，约 63% 的零收益日，日度 VaR 会被系统性低估，差了大约 24%
+      （对照实验见 docs/staleness_remedy.md），所以组合收益改用官方 NAV 日度，零收益只有
+      约 6%。跟市价口径的 factor_table.csv 差在三处：收益换成每单位资产净值(USD) 的对数
+      收益；时序对齐用 lag=0 同日剥离，因为 NAV 和美股是同一天估值的，市价口径才用 lag=1，
+      两个别换；NAV 同日口径的利率剥离 R²=0.668、真实久期≈3.7y，市价 lag1 只有 0.23/1.74y；
+      利差代理对的是同日 ΔOAS。列结构和 factor_table.csv 一样：date、d5y_bp、d10y_bp、
+      fx_ret_pct、etf_ret_pct、etf_rate_attrib_pct、etf_spread_proxy_pct、oas_bp、doas_bp。
+边界：OAS 是 EM 级非紧基准，ρ 和命中率只当参考，而且该列 2023-09 之前是空的。
 用法：./.venv/bin/python code/build_factors_nav.py
 """
 from __future__ import annotations
@@ -32,29 +32,23 @@ ensure_dirs()
 
 
 def main() -> None:
-    """用官方 NAV 日度收益重建因子表，作阶段二及后续任务的默认输入。
+    """用官方 NAV 的日度收益把因子表重做一遍，作为阶段二及后续任务的默认输入。
 
-    脚本契约：
-        消费：clean_data/treasury_yield_curve_clean.csv、
-            clean_data/nav_9141HK_clean.csv（取 nav_usd 列）、
-            clean_data/fred_DEXCHUS_clean.csv、
-            clean_data/fred_BAMLEMIBHGCRPIOAS_clean.csv。
-        产出：factors/factor_table_nav.csv（列与市价口径 factor_table.csv 一致：
-            date、d5y_bp、d10y_bp、fx_ret_pct、etf_ret_pct、etf_rate_attrib_pct、
-            etf_spread_proxy_pct、oas_bp、doas_bp）、
-            figures/spread_factor_vs_oas_nav.png。
-        断言/边界：无 assert，输入表缺失即抛 FileNotFoundError。ρ 与同向命中率
-            同时按同日 ΔOAS(t) 与滞后 ΔOAS(t-1) 打印，作图取同日口径；OAS 自
-            2023-09 起才有值，该段之前的校验样本为空。因子表以美债日历为索引，
-            fx_ret_pct 在汇率缺失的尾段留 NaN。
+    读 clean_data/treasury_yield_curve_clean.csv、clean_data/nav_9141HK_clean.csv
+    （取 nav_usd 列）、clean_data/fred_DEXCHUS_clean.csv、
+    clean_data/fred_BAMLEMIBHGCRPIOAS_clean.csv。
 
-    返回：
-        None。
+    写 factors/factor_table_nav.csv，列和市价口径 factor_table.csv 一致（date、d5y_bp、
+    d10y_bp、fx_ret_pct、etf_ret_pct、etf_rate_attrib_pct、etf_spread_proxy_pct、oas_bp、
+    doas_bp），另写 figures/spread_factor_vs_oas_nav.png。
 
-    备注：
-        NAV 与美股同日估值，故此处用 lag=0；市价口径的 lag=1 不能用在这里。
-        除权 NAV 会把分红跳空计成波动，正式 VaR 输入要用 build_tr_factors.py
-        的复权总收益表，本表保留作对照与审计底表。
+    没有 assert，输入表缺了就抛 FileNotFoundError。ρ 和同向命中率同时按同日 ΔOAS(t) 和
+    滞后 ΔOAS(t-1) 打出来，作图用同日口径。OAS 从 2023-09 才有值，那之前的校验样本是空的。
+    因子表以美债日历为索引，fx_ret_pct 在汇率缺的尾段留 NaN。
+
+    NAV 和美股是同一天估值的，所以这里用 lag=0；市价口径的 lag=1 不能搬过来，搬了整套暴露
+    都会变。除权 NAV 会把分红跳空算成波动，正式 VaR 输入要用 build_tr_factors.py 的复权
+    总收益表，本表留着当对照和审计底表。
     """
     def c(n):
         return pd.read_csv(CLEAN / n, parse_dates=["date"]).set_index("date")
@@ -73,7 +67,7 @@ def main() -> None:
     F["doas_bp"] = F["oas_bp"].diff()
     F = F.dropna(subset=["d5y_bp", "d10y_bp", "etf_ret_pct"])
 
-    # NAV 与美股同日 → lag=0 同日剥离（勿用市价的 lag=1）
+    # NAV 和美股同一天估值，用 lag=0 同日剥离；市价口径的 lag=1 别拿到这儿用
     y = F["etf_ret_pct"]
     X = sm.add_constant(pd.DataFrame({"d5y_same": F["d5y_bp"],
                                       "d10y_same": F["d10y_bp"]}))
@@ -93,7 +87,7 @@ def main() -> None:
     print(f"  R²={m.rsquared:.3f}   等效久期(β和×-100)≈{dur:.2f} 年   "
           f"n={int(m.nobs)}   年化波动={y.std()*np.sqrt(252):.2f}%   零收益占比={zshare:.1f}%")
 
-    # 校验：利差代理 vs 同日 ΔOAS（重叠窗 2023-09 起，只作参考）
+    # 校验：利差代理对同日 ΔOAS。能对上的窗口从 2023-09 开始，只当参考
     V = F.dropna(subset=["etf_spread_proxy_pct", "doas_bp"])
     sp = V["etf_spread_proxy_pct"]
     for lbl, do in [("同日 ΔOAS(t)", V["doas_bp"]),
@@ -103,9 +97,9 @@ def main() -> None:
         hit = ((dd.iloc[:, 0] < 0) & (dd.iloc[:, 1] > 0)) | \
               ((dd.iloc[:, 0] > 0) & (dd.iloc[:, 1] < 0))
         print(f"  利差代理 vs {lbl}: ρ={rho:+.3f}  同向命中={hit.mean()*100:.1f}%  (n={len(dd)})")
-    do_used = V["doas_bp"]   # NAV 同日 → 用同日 ΔOAS 作图
+    do_used = V["doas_bp"]   # NAV 是同日口径，所以作图也用同日 ΔOAS
 
-    # 输出（列结构与市价 factor_table.csv 一致）
+    # 写因子表，列结构和市价的 factor_table.csv 保持一致
     cols = ["d5y_bp", "d10y_bp", "fx_ret_pct", "etf_ret_pct",
             "etf_rate_attrib_pct", "etf_spread_proxy_pct", "oas_bp", "doas_bp"]
     out = F[cols].round(4).reset_index()
@@ -113,7 +107,7 @@ def main() -> None:
     out.to_csv(FACT / "factor_table_nav.csv", index=False, encoding="utf-8-sig")
     print(f"\n[已写] factors/factor_table_nav.csv  rows={len(out)}")
 
-    # 图：NAV 剥离利差代理 vs FRED OAS
+    # 图：NAV 剥出来的利差代理对 FRED OAS
     V2 = pd.concat([sp, V["oas_bp"], do_used], axis=1).dropna()
     V2.columns = ["sp", "oas_bp", "do"]
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 8), sharex=True,

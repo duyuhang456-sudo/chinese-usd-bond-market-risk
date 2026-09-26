@@ -1,10 +1,10 @@
-"""9/11 描述性统计 + 质量复核（第一阶段收口 · 默认 NAV 口径）
+"""描述性统计 + 质量复核（阶段一收口 · 9/11，默认 NAV 口径）
 
-消费：factors/factor_table_nav.csv（正式因子表，见 docs/factors.md 第六节）
+消费：factors/factor_table_nav.csv（正式因子表，说明见 docs/factors.md 第六节）
 产出：factors/descriptive_stats_nav.csv、figures/descriptive_hist_qq_nav.png、
-      figures/portfolio_return_decomp_nav.png；质量复核结论打印至控制台后汇入《数据说明文档》
-口径：分布特征含均值 / 标准差 / 偏度 / 峰度 / 正态性；组合累计收益按「总收益 = 利率贡献 +
-      利差代理」拆解。图只画核心序列，画太多反而稀释信息。
+      figures/portfolio_return_decomp_nav.png；质量复核结论打印到控制台，之后汇进《数据说明文档》
+口径：分布特征看均值 / 标准差 / 偏度 / 峰度 / 正态性；组合累计收益按「总收益 = 利率贡献 +
+      利差代理」拆开。图只画核心那几条序列，画太多反而把信息冲淡。
 用法：./.venv/bin/python code/descriptive_stats.py
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from common import CLEAN, FACT, FIG, ensure_dirs
 
 ensure_dirs()
 
-# (列名, 中文名, 是否收益类（收益类才年化 σ）, 量纲, 窗口说明)
+# 每行一个因子：列名、中文名、是不是收益类（只有收益类才年化 σ）、量纲、窗口说明
 SERIES = [
     ("etf_ret_pct",          "组合收益 (NAV, %)",    True,  "%/日", "2021-08 起"),
     ("etf_spread_proxy_pct", "信用利差代理 (残差, %)",
@@ -35,27 +35,24 @@ SERIES = [
     ("d10y_bp",              "利率因子 Δ10Y (bp)",   False, "bp/日", "2021-08 起"),
     ("doas_bp",              "外部利差 ΔOAS (bp)",   False, "bp/日", "2023-09 起"),
 ]
-# 直方图/QQ 图展示的核心序列（图太多则信息稀释）
+# 直方图和 QQ 图只画这几条核心序列，画多了信息反而被稀释
 FIG_Q = [("etf_ret_pct", "组合收益(NAV)"), ("etf_spread_proxy_pct", "利差代理"),
          ("fx_ret_pct", "汇率"), ("d10y_bp", "Δ10Y")]
 
 
 def main() -> None:
-    """对 NAV 口径因子表出分布特征表、直方图/QQ 图与收益拆解图，并打印质量复核。
+    """给 NAV 口径的因子表出分布特征表、直方图/QQ 图和收益拆解图，顺带打印质量复核。
 
-    脚本契约：
-        消费：factors/factor_table_nav.csv、clean_data/master_calendar.csv。
-        产出：factors/descriptive_stats_nav.csv（每行一个因子，列为窗口、n、
-            日均、日标准差、年化σ、偏度、超额峰度、JB-p、min/max、>0 与 =0 占比）、
-            figures/descriptive_hist_qq_nav.png、
-            figures/portfolio_return_decomp_nav.png；质量复核只打印到控制台。
-        断言/边界：无 assert。模块常量 SERIES 决定统计哪些列、量纲与窗口标签，
-            其中窗口标签（如 doas_bp 标为 2023-09 起）是手写字符串，不随数据实际
-            起点变化；非空检查只覆盖 6 个因子列并要求全表非空，oas_bp/doas_bp 允许
-            前段为 NaN；与主日历比对日期差集，有差集时打印 "!!" 并列出日期，但不中断。
+    消费 factors/factor_table_nav.csv 和 clean_data/master_calendar.csv；产出
+    factors/descriptive_stats_nav.csv（一行一个因子，列有窗口、n、日均、日标准差、年化σ、
+    偏度、超额峰度、JB-p、min/max、>0 和 =0 占比）、figures/descriptive_hist_qq_nav.png、
+    figures/portfolio_return_decomp_nav.png；质量复核只打到控制台。
 
-    返回：
-        None。
+    有两处要留神。模块常量 SERIES 决定统计哪几列、量纲和窗口标签，其中窗口标签（比如
+    doas_bp 写「2023-09 起」）是手写死的字符串，数据实际起点变了它也不跟着变。非空检查
+    只盯 6 个因子列、要求它们整列非空，oas_bp / doas_bp 前段允许是 NaN；另外会跟主日历
+    比一下日期差集，有差集就打 "!!" 把日期列出来，但不会中断。整段没有一个 assert 兜底，
+    出了状况只是打印出来，得靠人看。
     """
     F = pd.read_csv(FACT / "factor_table_nav.csv", parse_dates=["date"]).set_index("date")
     F = F[F.index.notna()]
