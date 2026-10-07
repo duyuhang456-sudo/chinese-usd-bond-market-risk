@@ -163,14 +163,17 @@ docs/        数据说明文档与研究文档
 **一键复现**（推荐入口，19 步按依赖顺序自动串起，默认跳过取数、不联网）：
 
 ```bash
-python code/run_all.py            # 全量；跑完自动对账 results/ 与 figures/
+python code/run_all.py --clean    # 清空 results/ 与 figures/ 后全量重建，跑完自动对账
+python code/run_all.py            # 全量；不清空，直接在现有产物上覆盖写
 python code/run_all.py --check    # 只对账不重跑
 python code/run_all.py --only phase3
 python code/run_all.py --list     # 列执行清单
 ```
 
-在干净 venv 里清空 `results/*.csv` 与 `figures/*.png` 后重跑，48 个产物与清空前
-**逐字节相同**。注意两点：**不能用 `--only phase2,phase3` 重建全部产物**
+**完整复现就是第一条命令**：清空加重建，约 52 秒，48 个产物与清空前**逐字节相同**。
+它覆盖「从归档原始数据到全部产物」，不含取数与建环境——要连取数一起跑加 `--download`
+（需联网），建 venv 与 `pip install -r requirements.txt` 则是这一步取代不了的前置动作。
+注意两点：**不能用 `--only phase2,phase3` 重建全部产物**
 （`baseline_var_tr.csv` 是阶段一产物，`var_backtest.py` 依赖它）；
 验证可复现性必须**先清空再重建**，在旧产物上校验发现不了空转的脚本。
 

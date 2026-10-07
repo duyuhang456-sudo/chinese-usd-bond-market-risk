@@ -5,6 +5,7 @@
 口径：没有——本脚本只管调用顺序，不碰任何一个数字
 边界：取数类脚本失败只记警告继续跑；计算类脚本失败立即终止
 用法：python code/run_all.py                       # 跑 phase1+2+3（默认跳过取数）
+      python code/run_all.py --clean               # 先清空 results/ 与 figures/ 再跑（验可复现用这个）
       python code/run_all.py --only phase2,phase3  # 只跑计量与压力测试
       python code/run_all.py --download            # 连同取数一起跑（需联网）
       python code/run_all.py --check               # 只做产物对账，不重跑测算
@@ -28,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import REPO, ensure_dirs  # noqa: E402
+from common import FIG, REPO, RES, ensure_dirs  # noqa: E402
 
 CODE = Path(__file__).resolve().parent
 PY = sys.executable
@@ -111,23 +112,45 @@ def run_step(script: str, kind: str, quiet: bool) -> tuple[bool, float]:
     return ok, time.perf_counter() - t0
 
 
+def clean_outputs() -> int:
+    """删掉 results/ 下的 csv 和 figures/ 下的 png，返回删掉的个数。
+
+    只删这两类交付产物，不碰 .gitkeep，也不碰 clean_data/ 与 factors/ 的中间产物
+    ——中间产物一律由脚本自己整表覆盖写，清与不清结果一样。
+
+    为什么要清空才能验可复现：脚本空转（比如可执行语句被相邻 def 吸收）时，
+    退出码仍是 0、零 stdout、不写任何文件；此时在旧产物上校验会全部通过，
+    因为文件压根没被重写。先删再建，空转就藏不住了。
+    """
+    n = 0
+    for d, pat in ((RES, "*.csv"), (FIG, "*.png")):
+        for f in sorted(d.glob(pat)):
+            f.unlink()
+            n += 1
+    return n
+
+
 def main() -> int:
     """一键运行入口：解析参数、按依赖顺序跑脚本、跑完做一次产物对账。
 
-    参数从命令行读，认 --only / --download / --check / --quiet / --list 这几个。
+    参数从命令行读，认 --only / --download / --clean / --check / --quiet / --list。
     返回的是进程退出码，只有三种：0 = 全部成功且对账通过；1 = 计算类脚本失败，
     或者产物对账没过；2 = 阶段名写错了。
     """
     ap = argparse.ArgumentParser(
         description="中资投资级美元债风险计量与压力测试预研工具 · 一键运行入口",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="例：python code/run_all.py --only phase2,phase3",
+        epilog="例：python code/run_all.py --clean\n"
+               "    python code/run_all.py --only phase2,phase3",
     )
     ap.add_argument("--only", default="phase1,phase2,phase3",
                     help="只跑指定阶段，逗号分隔（默认全部）：phase1,phase2,phase3")
     ap.add_argument("--download", action="store_true",
                     help="连同取数脚本一起跑（需联网）。默认跳过取数，"
                          "直接用已归档的 raw_data/ 复现——取数失败不该阻断离线复现。")
+    ap.add_argument("--clean", action="store_true",
+                    help="先删掉 results/*.csv 与 figures/*.png 再跑。"
+                         "验证可复现性必须清空重建，在旧产物上校验发现不了空转的脚本。")
     ap.add_argument("--check", action="store_true",
                     help="只对账现有产物（code/check_outputs.py），不重跑任何测算。")
     ap.add_argument("--quiet", action="store_true",
@@ -155,8 +178,14 @@ def main() -> int:
     print(f"  解释器    {PY}")
     print(f"  阶段      {', '.join(phases)}（共 {len(steps)} 步）")
     print(f"  取数      {'跑（--download）' if args.download else '跳过（默认；加 --download 开启）'}")
+    print(f"  清空      {'是（--clean）' if args.clean else '否（默认在现有产物上覆盖写）'}")
 
     ensure_dirs()
+    if args.clean:
+        if set(phases) != set(PHASE_NAMES):
+            print(f"\n  ! --clean 会删掉全部产物，但本次只跑 {'/'.join(phases)}；"
+                  f"清空后没重建的部分会缺失，尤其 baseline_var_tr.csv 属阶段一。")
+        print(f"\n[清空] 删除 {clean_outputs()} 个旧产物（results/*.csv、figures/*.png）")
 
     ok_n = skip_n = 0
     warns: list[str] = []
