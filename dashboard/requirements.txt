@@ -1,0 +1,11 @@
+# Streamlit Community Cloud 专用依赖列表（无计量链路）。
+#
+# Cloud 找依赖文件的顺序是「先入口文件所在目录，再仓库根」，所以这份
+# dashboard/requirements.txt 会优先于仓库根那份 requirements.txt，让云端构建
+# **只装看板这一层**（streamlit 及其传递依赖），不碰 arch / statsmodels /
+# matplotlib / scipy / seaborn / yfinance 等计量包——几百 MB，在 Cloud 免费 tier
+# 上容易在构建阶段（oven）卡死或超时。
+#
+# 看板只 read_csv，不 import 任何一个计量包，所以这样瘦身是安全的。
+# 本地跑离线自检不受影响（本地仍用仓库根 requirements.txt）。
+streamlit==1.50.0

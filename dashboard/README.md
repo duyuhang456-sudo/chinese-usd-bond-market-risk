@@ -181,9 +181,11 @@ protan/deutan 模拟下的 CVD ΔE、常视觉 ΔE 下限、以及对底色的 W
    本仓库只在根放了一个 `requirements.txt`，末尾有 `-r requirements-dashboard.txt`，
    Cloud 会顺着装到 streamlit。首次构建因此会连带装上计量链路的全部依赖
    （matplotlib / statsmodels / arch 等，几百 MB），构建偏慢但可用。
-6. 如果想让云端只装看板这一层，把 `requirements-dashboard.txt` 复制一份到
-   `dashboard/requirements.txt`——入口文件所在目录的依赖文件优先于仓库根的那份，
-   Cloud 就只装 streamlit 及其传递依赖，不碰计量链路的包。看板不 import 任何一个计量包。
+6. **云端只装看板这一层**：`dashboard/requirements.txt`（只含
+   `streamlit==1.50.0`）已入库。入口文件所在目录的依赖文件优先于仓库根的那份，
+   所以 Cloud 只装 streamlit 及其传递依赖，不碰计量链路的包，构建不在 oven 卡。
+   看板不 import 任何一个计量包，此瘦身安全。本地离线自检不受影响（仍用仓库根
+   `requirements.txt`）。
 7. 点 Deploy。之后每次 push 到该分支会自动重新部署。
 
 `.streamlit/config.toml` 放在仓库根，Cloud 从仓库根读它，部署后 `streamlit run` 的
