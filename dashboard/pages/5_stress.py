@@ -250,122 +250,121 @@ with page.card("损失、判定线与压力倍数",
     )
 
 # ============================================ 3｜缓冲档位敏感性 ｜ 族内梯度
-row3 = st.columns(2, gap="medium")
-with row3[0]:
-    with page.card("缓冲档位与超限条数",
-                   "五个登记档位之间不插值，连起来只看走向；换档位只推「加缓冲后」的"
-                   "损失，判定线本身不动。", stretch=True):
-        _tc = (_bs.groupby(["buffer_value", "buffer_label", "caliber"], as_index=False)["is_tail"]
-               .sum().rename(columns={"is_tail": "n_tail"}))
-        _tot = (_tc.groupby(["buffer_value", "buffer_label"], as_index=False)["n_tail"]
-                .sum().assign(caliber="合计"))
-        CURVE = pd.concat([_tc, _tot], ignore_index=True)
-        CURVE["口径"] = CURVE["caliber"].map(lambda c: labels.CALIBER_SHORT.get(c, c))
-        _order_cn = [labels.CALIBER_SHORT["主"], labels.CALIBER_SHORT["次"], "合计"]
 
-        _lines = alt.Chart(CURVE[CURVE["口径"] != "合计"]).mark_line(
-            strokeWidth=charts.LINE_PX, point=alt.OverlayMarkDef(
-                size=charts.MARKER_PX, filled=True, stroke=_tok["surface"],
-                strokeWidth=charts.SURFACE_RING),
-        ).encode(
-            x=alt.X("buffer_value:Q", title="缓冲（pp）"),
-            y=alt.Y("n_tail:Q", title="超限情景条数"),
-            color=alt.Color("口径:N", title="", sort=_order_cn,
-                            scale=alt.Scale(domain=_order_cn,
-                                            range=list(_tok["series"][:2]))),
-            tooltip=[alt.Tooltip("buffer_label:N", title="档位"),
-                     alt.Tooltip("口径:N"), alt.Tooltip("n_tail:Q", title="超限条数")],
-        )
-        # 合计是两条线的加总，不是第三个平行序列，所以用中性墨而不是第三个分类色
-        _agg = alt.Chart(CURVE[CURVE["口径"] == "合计"]).mark_line(
-            strokeWidth=3, color=_tok["ink2"], opacity=0.5).encode(
-            x=alt.X("buffer_value:Q"), y=alt.Y("n_tail:Q"),
-            tooltip=[alt.Tooltip("buffer_label:N", title="档位"),
-                     alt.Tooltip("n_tail:Q", title="两口径合计条数")],
-        )
-        st.altair_chart(
-            charts.add_rule((_lines + _agg).properties(height=250), buf_value,
-                            label=f"当前档位 {buf_value:.4f} pp", orient="vertical"),
-            use_container_width=True,
-        )
-        _piv = _tc.pivot_table(index=["buffer_value", "buffer_label"], columns="caliber",
-                               values="n_tail")
-        _piv["合计"] = _piv.sum(axis=1)
-        _piv = _piv.rename(columns=labels.CALIBER_SHORT).reset_index()
-        _piv.columns = ["缓冲（pp）", "档位", "主口径", "次口径", "合计"]
-        for _c in ("主口径", "次口径", "合计"):
-            _piv[_c] = _piv[_c].astype(int)
-        charts.data_drawer(
-            _piv, key="st_buffer", height=250,
-            title="数据抽屉 · 缓冲档位超限条数：5 个档位 × 主 / 次口径与合计",
-            note=f"本报告取值是「{REGISTERED}」这一档，两口径合计 19 条，是全报告引用最多的"
-                 "那组读数。5 个档位依次是 17 / 17 / 19 / 23 / 23 条，全部落在 17 到 23 之间；"
-                 "主口径不缓冲时 7 条，缓冲只会把损失推得更远，条数只增不减。"
-                 "次口径的起点就高于主口径，因为汇率一进入计价就带来额外损失。"
-                 "低档位那一段是平的：纯汇率情景恒不加缓冲、历史情景取实际路径。",
-        )
+with page.card("缓冲档位与超限条数",
+               "五个登记档位之间不插值，连起来只看走向；换档位只推「加缓冲后」的"
+               "损失，判定线本身不动。"):
+    _tc = (_bs.groupby(["buffer_value", "buffer_label", "caliber"], as_index=False)["is_tail"]
+           .sum().rename(columns={"is_tail": "n_tail"}))
+    _tot = (_tc.groupby(["buffer_value", "buffer_label"], as_index=False)["n_tail"]
+            .sum().assign(caliber="合计"))
+    CURVE = pd.concat([_tc, _tot], ignore_index=True)
+    CURVE["口径"] = CURVE["caliber"].map(lambda c: labels.CALIBER_SHORT.get(c, c))
+    _order_cn = [labels.CALIBER_SHORT["主"], labels.CALIBER_SHORT["次"], "合计"]
 
-with row3[1]:
-    with page.card("族内梯度",
-                   "三族的轻 / 中 / 极端三档在当前档位下各落在哪里。"
-                   + labels.GRADIENT_NOTE, stretch=True):
-        _grp = M[M["scenario_id"].str.match(r"^S\d+$") & M["direction"].isin(FAMILIES)].copy()
-        _grp["倍数"] = _grp["severity"].map(
-            {labels.SEVERITY_ORDER[0]: 1.0, labels.SEVERITY_ORDER[1]: 1.5,
-             labels.SEVERITY_ORDER[2]: 2.0})
-        _grp = _grp.sort_values(["direction", "倍数"])
-        _ymax = float(_grp["loss_net_pct"].max()) * 1.24
-
-        _grad = alt.Chart(_grp).mark_line(strokeWidth=charts.LINE_PX, point=alt.OverlayMarkDef(
+    _lines = alt.Chart(CURVE[CURVE["口径"] != "合计"]).mark_line(
+        strokeWidth=charts.LINE_PX, point=alt.OverlayMarkDef(
             size=charts.MARKER_PX, filled=True, stroke=_tok["surface"],
-            strokeWidth=charts.SURFACE_RING)).encode(
-            x=alt.X("倍数:Q", title="相对本族轻度档的倍数", scale=alt.Scale(domain=[0.9, 2.15])),
-            y=alt.Y("loss_net_pct:Q",
-                    title=f"含缓冲净损失（%）· {labels.CALIBER_SHORT[caliber]}",
-                    scale=alt.Scale(domain=[0, _ymax], zero=True)),
-            color=alt.Color("direction:N", title="", sort=FAMILIES,
-                            legend=alt.Legend(orient="bottom", direction="horizontal",
-                                              columns=3, title=None, symbolType="circle"),
-                            scale=alt.Scale(domain=FAMILIES, range=list(_tok["series"][:3]))),
-            tooltip=[alt.Tooltip("scenario_id:N", title="编号"),
-                     alt.Tooltip("scenario_name:N", title="情景"),
-                     alt.Tooltip("倍数:Q", title="相对轻度档", format=".2f"),
-                     alt.Tooltip("loss_net_pct:Q", title="含缓冲净损失 %", format=".4f"),
-                     alt.Tooltip("x_es99:Q", title="判定线倍数", format=".3f")],
-        )
-        _peak = _grp.loc[_grp["loss_net_pct"].idxmax()]
-        # 判定线的标签改挂在线的**下方**：信用利差这一族在左端就贴在判定线附近，
-        # 默认的「线上方」写法会和它撞在一起。annotate 的 dot=False 就是纯文字层。
-        _rule = charts.annotate(
-            charts.add_rule(_grad.properties(height=265), es_line),
-            x=1.02, y=es_line, text=f"判定线 {es_line:.4f}%",
-            dot=False, align="left", dx=0, dy=14,
-        )
-        st.altair_chart(
-            charts.annotate(_rule,
-                            x=float(_peak["倍数"]), y=float(_peak["loss_net_pct"]),
-                            text=f"{_peak['scenario_id']} {_peak['loss_net_pct']:.4f}%，"
-                                 f"判定线的 {float(_peak['x_es99']):.2f} 倍",
-                            align="right", dx=-8, dy=-14),
-            use_container_width=True,
-        )
-        st.caption(
-            "缓冲对同一族的三档是同一个常数，所以加缓冲后的三点仍在一条直线上，只是整条线平移。"
-        )
-        charts.data_drawer(
-            _grp[["scenario_id", "scenario_name", "direction", "severity", "倍数",
-                  "benchmark_loss_pct", "loss_net_pct", "x_es99"]],
-            key="st_gradient",
-            title="数据抽屉 · 族内梯度：三个情景族 × 轻 / 中 / 极端三档的损失与倍数",
-            labels={"scenario_id": "编号", "scenario_name": "情景", "direction": "族",
-                    "severity": "档位", "倍数": "相对轻度档", "benchmark_loss_pct": "基准损失 %",
-                    "loss_net_pct": "含缓冲净损失 %", "x_es99": "判定线倍数"},
-            fmt={"倍数": "%.2f", "benchmark_loss_pct": "%.4f", "loss_net_pct": "%.4f",
-                 "x_es99": "%.3f"},
-            note="三族各三档共 9 条，另加一条组合极端 S10 不在族内。"
-                 "倍数一列是登记时的相对档位。离岸汇率那一族在美元口径下整条压在 0 上，"
-                 "换到人民币口径才抬起来。",
-        )
+            strokeWidth=charts.SURFACE_RING),
+    ).encode(
+        x=alt.X("buffer_value:Q", title="缓冲（pp）"),
+        y=alt.Y("n_tail:Q", title="超限情景条数"),
+        color=alt.Color("口径:N", title="", sort=_order_cn,
+                        scale=alt.Scale(domain=_order_cn,
+                                        range=list(_tok["series"][:2]))),
+        tooltip=[alt.Tooltip("buffer_label:N", title="档位"),
+                 alt.Tooltip("口径:N"), alt.Tooltip("n_tail:Q", title="超限条数")],
+    )
+    # 合计是两条线的加总，不是第三个平行序列，所以用中性墨而不是第三个分类色
+    _agg = alt.Chart(CURVE[CURVE["口径"] == "合计"]).mark_line(
+        strokeWidth=3, color=_tok["ink2"], opacity=0.5).encode(
+        x=alt.X("buffer_value:Q"), y=alt.Y("n_tail:Q"),
+        tooltip=[alt.Tooltip("buffer_label:N", title="档位"),
+                 alt.Tooltip("n_tail:Q", title="两口径合计条数")],
+    )
+    st.altair_chart(
+        charts.add_rule((_lines + _agg).properties(height=250), buf_value,
+                        label=f"当前档位 {buf_value:.4f} pp", orient="vertical"),
+        use_container_width=True,
+    )
+    _piv = _tc.pivot_table(index=["buffer_value", "buffer_label"], columns="caliber",
+                           values="n_tail")
+    _piv["合计"] = _piv.sum(axis=1)
+    _piv = _piv.rename(columns=labels.CALIBER_SHORT).reset_index()
+    _piv.columns = ["缓冲（pp）", "档位", "主口径", "次口径", "合计"]
+    for _c in ("主口径", "次口径", "合计"):
+        _piv[_c] = _piv[_c].astype(int)
+    charts.data_drawer(
+        _piv, key="st_buffer", height=250,
+        title="数据抽屉 · 缓冲档位超限条数：5 个档位 × 主 / 次口径与合计",
+        note=f"本报告取值是「{REGISTERED}」这一档，两口径合计 19 条，是全报告引用最多的"
+             "那组读数。5 个档位依次是 17 / 17 / 19 / 23 / 23 条，全部落在 17 到 23 之间；"
+             "主口径不缓冲时 7 条，缓冲只会把损失推得更远，条数只增不减。"
+             "次口径的起点就高于主口径，因为汇率一进入计价就带来额外损失。"
+             "低档位那一段是平的：纯汇率情景恒不加缓冲、历史情景取实际路径。",
+    )
+
+
+with page.card("族内梯度",
+               "三族的轻 / 中 / 极端三档在当前档位下各落在哪里。"
+               + labels.GRADIENT_NOTE):
+    _grp = M[M["scenario_id"].str.match(r"^S\d+$") & M["direction"].isin(FAMILIES)].copy()
+    _grp["倍数"] = _grp["severity"].map(
+        {labels.SEVERITY_ORDER[0]: 1.0, labels.SEVERITY_ORDER[1]: 1.5,
+         labels.SEVERITY_ORDER[2]: 2.0})
+    _grp = _grp.sort_values(["direction", "倍数"])
+    _ymax = float(_grp["loss_net_pct"].max()) * 1.24
+
+    _grad = alt.Chart(_grp).mark_line(strokeWidth=charts.LINE_PX, point=alt.OverlayMarkDef(
+        size=charts.MARKER_PX, filled=True, stroke=_tok["surface"],
+        strokeWidth=charts.SURFACE_RING)).encode(
+        x=alt.X("倍数:Q", title="相对本族轻度档的倍数", scale=alt.Scale(domain=[0.9, 2.15])),
+        y=alt.Y("loss_net_pct:Q",
+                title=f"含缓冲净损失（%）· {labels.CALIBER_SHORT[caliber]}",
+                scale=alt.Scale(domain=[0, _ymax], zero=True)),
+        color=alt.Color("direction:N", title="", sort=FAMILIES,
+                        legend=alt.Legend(orient="bottom", direction="horizontal",
+                                          columns=3, title=None, symbolType="circle"),
+                        scale=alt.Scale(domain=FAMILIES, range=list(_tok["series"][:3]))),
+        tooltip=[alt.Tooltip("scenario_id:N", title="编号"),
+                 alt.Tooltip("scenario_name:N", title="情景"),
+                 alt.Tooltip("倍数:Q", title="相对轻度档", format=".2f"),
+                 alt.Tooltip("loss_net_pct:Q", title="含缓冲净损失 %", format=".4f"),
+                 alt.Tooltip("x_es99:Q", title="判定线倍数", format=".3f")],
+    )
+    _peak = _grp.loc[_grp["loss_net_pct"].idxmax()]
+    # 判定线的标签改挂在线的**下方**：信用利差这一族在左端就贴在判定线附近，
+    # 默认的「线上方」写法会和它撞在一起。annotate 的 dot=False 就是纯文字层。
+    _rule = charts.annotate(
+        charts.add_rule(_grad.properties(height=265), es_line),
+        x=1.02, y=es_line, text=f"判定线 {es_line:.4f}%",
+        dot=False, align="left", dx=0, dy=14,
+    )
+    st.altair_chart(
+        charts.annotate(_rule,
+                        x=float(_peak["倍数"]), y=float(_peak["loss_net_pct"]),
+                        text=f"{_peak['scenario_id']} {_peak['loss_net_pct']:.4f}%，"
+                             f"判定线的 {float(_peak['x_es99']):.2f} 倍",
+                        align="right", dx=-8, dy=-14),
+        use_container_width=True,
+    )
+    st.caption(
+        "缓冲对同一族的三档是同一个常数，所以加缓冲后的三点仍在一条直线上，只是整条线平移。"
+    )
+    charts.data_drawer(
+        _grp[["scenario_id", "scenario_name", "direction", "severity", "倍数",
+              "benchmark_loss_pct", "loss_net_pct", "x_es99"]],
+        key="st_gradient",
+        title="数据抽屉 · 族内梯度：三个情景族 × 轻 / 中 / 极端三档的损失与倍数",
+        labels={"scenario_id": "编号", "scenario_name": "情景", "direction": "族",
+                "severity": "档位", "倍数": "相对轻度档", "benchmark_loss_pct": "基准损失 %",
+                "loss_net_pct": "含缓冲净损失 %", "x_es99": "判定线倍数"},
+        fmt={"倍数": "%.2f", "benchmark_loss_pct": "%.4f", "loss_net_pct": "%.4f",
+             "x_es99": "%.3f"},
+        note="三族各三档共 9 条，另加一条组合极端 S10 不在族内。"
+             "倍数一列是登记时的相对档位。离岸汇率那一族在美元口径下整条压在 0 上，"
+             "换到人民币口径才抬起来。",
+    )
 
 # ============================================ 4｜因子贡献度（满宽）
 with page.card("因子贡献度",

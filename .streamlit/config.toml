@@ -14,10 +14,10 @@
 # 两套观感。tools/check_palette.py 会拿这份文件与令牌对账，改一处就得改另一处。
 
 [theme]
-# 浅色＝结项汇报的内容页：米白底、白卡片、深蓝焦点色、暖灰边。
+# 浅色＝结项汇报的内容页：整页一片米白纸色，卡片靠边框区隔，不另起白底。
 base = "light"
 backgroundColor = "#F7F5F0"            # 内容页米白
-secondaryBackgroundColor = "#FFFFFF"   # 卡片白底
+secondaryBackgroundColor = "#F7F5F0"   # 卡片背景＝页面米白，只靠边框分卡
 textColor = "#465667"                  # 正文
 linkColor = "#8C6832"                  # 金字，不用金 #C9A66B——那个当文字只有约 2:1
 borderColor = "#E3DDD1"

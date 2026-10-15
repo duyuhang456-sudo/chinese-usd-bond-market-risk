@@ -59,10 +59,6 @@ NAV = st.navigation(
 )
 
 with st.sidebar:
-    st.caption(
-        "本看板只读 `results/`、`factors/`、`clean_data/` 下既有的测算产物，"
-        "不重算任何数字，也不改写 `code/` 与 `figures/`；每页页脚写明该页读了哪张表。"
-    )
     with st.expander("四阶段进度 · git 可追溯"):
         for _p in labels.PHASES:
             st.caption(

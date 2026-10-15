@@ -169,58 +169,56 @@ with page.card("因子分布（直方图 + 同均值方差的正态参照线）"
     )
 
 # ============================================== 相关结构与波动贡献
-row1 = st.columns(2, gap="medium")
-with row1[0]:
-    with page.card("因子相关阵（单色阶，深色 = 相关更强）",
-                   "利差代理与利率因子相关恰为 0，那是回归残差按定义正交，不是实证发现。",
-                   stretch=True):
-        _corr = data.factor_corr()
-        st.altair_chart(
-            charts.heatmap(_corr, x="factor_b", y="factor", v="corr", height=260,
-                           x_title="", y_title="", v_title="相关系数"),
-            use_container_width=True,
-        )
-        charts.data_drawer(
-            _corr, key="df_corr", title="数据抽屉 · 因子相关阵（3 × 3）",
-            labels={"factor": "因子", "factor_b": "对照因子", "corr": "相关系数"},
-            fmt={"corr": "%.3f"}, height=220,
-            note="读 results/factor_corr.csv；对角线恒为 1。",
-        )
 
-with row1[1]:
-    _attr = data.var_attribution().copy()
-    _ATTR_NAME = {
-        "Δ5Y": labels.FACTOR_CN["d5y_bp"],
-        "Δ10Y": labels.FACTOR_CN["d10y_bp"],
-        "利差代理（残差）": labels.FACTOR_CN["residual"],
-        "汇率 CNY/USD": labels.FACTOR_CN["fx_ret_pct"],
-    }
-    _ATTR_ORDER = [_ATTR_NAME[k] for k in
-                   ["Δ5Y", "Δ10Y", "利差代理（残差）", "汇率 CNY/USD"]]
-    _attr["因子"] = _attr["factor"].map(_ATTR_NAME)
-    _attr["口径"] = _attr["caliber"].map(labels.CALIBER_SHORT)
-    _attr = _attr.sort_values("口径", key=lambda s: s.map(
-        {labels.CALIBER_SHORT["主"]: 0, labels.CALIBER_SHORT["次"]: 1}))
-    with page.card("波动来自哪一维（因子方差贡献份额）",
-                   "主口径没有汇率一行；次口径多出的那块汇率占 44.2%。", stretch=True):
-        st.altair_chart(
-            charts.stacked_share(_attr, cat="口径", seg="因子", val="share_pct",
-                                 seg_order=_ATTR_ORDER, height=260,
-                                 x_title="方差贡献份额（%）"),
-            use_container_width=True,
-        )
-        charts.data_drawer(
-            _attr[["caliber_raw", "factor", "share_pct"]], key="df_attr", height=200,
-            title="数据抽屉 · 因子波动贡献份额（两口径 × 三到四个因子）",
-            labels={"caliber_raw": "口径", "factor": "因子", "share_pct": "份额（%）"},
-            fmt={"share_pct": "%.4f"},
-            note=("读 results/var_attribution.csv；主口径没有汇率一行"
-                  "（该口径下汇率不进分解）。美元口径下汇率变动被计价基准搬运掉了；"
-                  "人民币口径因此多出一块汇率、占 44.2%，「人民币视角下汇率是常态"
-                  "波动的主要来源」这个读数就出自这里。利差代理那一块是同一次回归的"
-                  "残差，是代理量、不是真实信用风险贡献；主口径整行为 100% 是把三块"
-                  "重新归一的结果，不能用它与次口径比绝对水平。"),
-        )
+with page.card("因子相关阵（单色阶，深色 = 相关更强）",
+               "利差代理与利率因子相关恰为 0，那是回归残差按定义正交，不是实证发现。"):
+    _corr = data.factor_corr()
+    st.altair_chart(
+        charts.heatmap(_corr, x="factor_b", y="factor", v="corr", height=260,
+                       x_title="", y_title="", v_title="相关系数"),
+        use_container_width=True,
+    )
+    charts.data_drawer(
+        _corr, key="df_corr", title="数据抽屉 · 因子相关阵（3 × 3）",
+        labels={"factor": "因子", "factor_b": "对照因子", "corr": "相关系数"},
+        fmt={"corr": "%.3f"}, height=220,
+        note="读 results/factor_corr.csv；对角线恒为 1。",
+    )
+
+
+_attr = data.var_attribution().copy()
+_ATTR_NAME = {
+    "Δ5Y": labels.FACTOR_CN["d5y_bp"],
+    "Δ10Y": labels.FACTOR_CN["d10y_bp"],
+    "利差代理（残差）": labels.FACTOR_CN["residual"],
+    "汇率 CNY/USD": labels.FACTOR_CN["fx_ret_pct"],
+}
+_ATTR_ORDER = [_ATTR_NAME[k] for k in
+               ["Δ5Y", "Δ10Y", "利差代理（残差）", "汇率 CNY/USD"]]
+_attr["因子"] = _attr["factor"].map(_ATTR_NAME)
+_attr["口径"] = _attr["caliber"].map(labels.CALIBER_SHORT)
+_attr = _attr.sort_values("口径", key=lambda s: s.map(
+    {labels.CALIBER_SHORT["主"]: 0, labels.CALIBER_SHORT["次"]: 1}))
+with page.card("波动来自哪一维（因子方差贡献份额）",
+               "主口径没有汇率一行；次口径多出的那块汇率占 44.2%。"):
+    st.altair_chart(
+        charts.stacked_share(_attr, cat="口径", seg="因子", val="share_pct",
+                             seg_order=_ATTR_ORDER, height=260,
+                             x_title="方差贡献份额（%）"),
+        use_container_width=True,
+    )
+    charts.data_drawer(
+        _attr[["caliber_raw", "factor", "share_pct"]], key="df_attr", height=200,
+        title="数据抽屉 · 因子波动贡献份额（两口径 × 三到四个因子）",
+        labels={"caliber_raw": "口径", "factor": "因子", "share_pct": "份额（%）"},
+        fmt={"share_pct": "%.4f"},
+        note=("读 results/var_attribution.csv；主口径没有汇率一行"
+              "（该口径下汇率不进分解）。美元口径下汇率变动被计价基准搬运掉了；"
+              "人民币口径因此多出一块汇率、占 44.2%，「人民币视角下汇率是常态"
+              "波动的主要来源」这个读数就出自这里。利差代理那一块是同一次回归的"
+              "残差，是代理量、不是真实信用风险贡献；主口径整行为 100% 是把三块"
+              "重新归一的结果，不能用它与次口径比绝对水平。"),
+    )
 
 # ============================================================ 三条收益口径
 with page.card("NAV 除权口径的累计收益分解",
@@ -308,72 +306,70 @@ _proxy = "etf_spread_proxy_pct" if "etf_spread_proxy_pct" in base.columns \
     else "etf_spread_proxy_tr_pct"
 
 # 这两张是同一件事的两面（代理量与 ΔOAS 的散点、两条累计），并排看更省版面
-row2 = st.columns(2, gap="medium")
-with row2[0]:
-    with page.card("信用维度：利差代理与滞后 ΔOAS",
-                   "信用因子自 2023-09 起才有外部序列，此前用回归残差代理。",
-                   stretch=True):
-        _sp = base[["date", _proxy, "doas_bp"]].dropna().copy()
-        _sp["doas_lag1_bp"] = _sp["doas_bp"].shift(1)
-        _sp = _sp.dropna()
-        st.altair_chart(
-            charts.scatter(
-                _sp, x="doas_lag1_bp", y=_proxy, height=280,
-                x_title="ΔOAS（滞后一日，bp）",
-                y_title="利差代理收益（%）",
-                tooltip=[alt.Tooltip("date:T", title="日期"),
-                         alt.Tooltip("doas_lag1_bp:Q", title="ΔOAS(t−1) bp",
-                                     format=".1f"),
-                         alt.Tooltip(f"{_proxy}:Q", title="代理收益 %",
-                                     format=".4f")]),
-            use_container_width=True,
-        )
-        charts.data_drawer(
-            _sp, key="df_sp",
-            title="数据抽屉 · 利差代理收益与滞后一日 ΔOAS 的逐日对照",
-            labels={"date": "日期", "doas_bp": "ΔOAS bp",
-                    "doas_lag1_bp": "ΔOAS 滞后一日 bp", _proxy: "利差代理收益 %"},
-            fmt={"doas_bp": "%.1f", "doas_lag1_bp": "%.1f", _proxy: "%.4f"},
-            note=("口径提示：NAV 口径取当日（lag 0），市价口径取滞后一日（lag 1），"
-                  "两者不可混用。滞后一日列由页面用 shift(1) 生成；两列都非空的行才"
-                  "进入散点。代理量的用途只有一个：在外部 ΔOAS 缺失的 "
-                  f"{_n_rows - _n_doas} 天里顶替信用维度，它和 ΔOAS 的等级相关程度"
-                  "决定了这段顶替有多可信。"),
-        )
 
-with row2[1]:
-    with page.card("利差代理与 ΔOAS 的累计对照",
-                   "两个序列量纲不同，纵向分面、不共轴。", stretch=True):
-        _cum = base[["date", _proxy, "doas_bp"]].copy()
-        _cum["cum_proxy"] = _cum[_proxy].cumsum()
-        _cum["cum_doas"] = _cum["doas_bp"].cumsum()
-        _cl = _cum.melt(id_vars="date", value_vars=["cum_proxy", "cum_doas"],
-                        var_name="series", value_name="cum")
-        _cl["series"] = _cl["series"].map({"cum_proxy": "利差代理收益累计（%）",
-                                           "cum_doas": "ΔOAS 累计（bp）"})
-        _cl = data.slice_dates(_cl, start, end)
-        _reg = data.benchmark_comparison()
-        _rho_row = _reg[_reg["metric"].astype(str).str.contains("ρ", na=False)]
-        st.altair_chart(
-            alt.Chart(_cl).mark_line(strokeWidth=charts.LINE_PX).encode(
-                x=alt.X("date:T", title=""),
-                y=alt.Y("cum:Q", title=""),
-                color=alt.Color("series:N", title="",
-                                scale=alt.Scale(domain=["利差代理收益累计（%）",
-                                                        "ΔOAS 累计（bp）"])),
-                tooltip=[alt.Tooltip("date:T", title="日期"),
-                         alt.Tooltip("cum:Q", format=".2f")],
-            ).properties(height=126, width=charts.facet_width(1)).facet(
-                row=alt.Row("series:N", title="")
-            ).resolve_scale(y="independent"),
-            use_container_width=False,
+with page.card("信用维度：利差代理与滞后 ΔOAS",
+               "信用因子自 2023-09 起才有外部序列，此前用回归残差代理。"):
+    _sp = base[["date", _proxy, "doas_bp"]].dropna().copy()
+    _sp["doas_lag1_bp"] = _sp["doas_bp"].shift(1)
+    _sp = _sp.dropna()
+    st.altair_chart(
+        charts.scatter(
+            _sp, x="doas_lag1_bp", y=_proxy, height=280,
+            x_title="ΔOAS（滞后一日，bp）",
+            y_title="利差代理收益（%）",
+            tooltip=[alt.Tooltip("date:T", title="日期"),
+                     alt.Tooltip("doas_lag1_bp:Q", title="ΔOAS(t−1) bp",
+                                 format=".1f"),
+                     alt.Tooltip(f"{_proxy}:Q", title="代理收益 %",
+                                 format=".4f")]),
+        use_container_width=True,
+    )
+    charts.data_drawer(
+        _sp, key="df_sp",
+        title="数据抽屉 · 利差代理收益与滞后一日 ΔOAS 的逐日对照",
+        labels={"date": "日期", "doas_bp": "ΔOAS bp",
+                "doas_lag1_bp": "ΔOAS 滞后一日 bp", _proxy: "利差代理收益 %"},
+        fmt={"doas_bp": "%.1f", "doas_lag1_bp": "%.1f", _proxy: "%.4f"},
+        note=("口径提示：NAV 口径取当日（lag 0），市价口径取滞后一日（lag 1），"
+              "两者不可混用。滞后一日列由页面用 shift(1) 生成；两列都非空的行才"
+              "进入散点。代理量的用途只有一个：在外部 ΔOAS 缺失的 "
+              f"{_n_rows - _n_doas} 天里顶替信用维度，它和 ΔOAS 的等级相关程度"
+              "决定了这段顶替有多可信。"),
+    )
+
+
+with page.card("利差代理与 ΔOAS 的累计对照",
+               "两个序列量纲不同，纵向分面、不共轴。"):
+    _cum = base[["date", _proxy, "doas_bp"]].copy()
+    _cum["cum_proxy"] = _cum[_proxy].cumsum()
+    _cum["cum_doas"] = _cum["doas_bp"].cumsum()
+    _cl = _cum.melt(id_vars="date", value_vars=["cum_proxy", "cum_doas"],
+                    var_name="series", value_name="cum")
+    _cl["series"] = _cl["series"].map({"cum_proxy": "利差代理收益累计（%）",
+                                       "cum_doas": "ΔOAS 累计（bp）"})
+    _cl = data.slice_dates(_cl, start, end)
+    _reg = data.benchmark_comparison()
+    _rho_row = _reg[_reg["metric"].astype(str).str.contains("ρ", na=False)]
+    st.altair_chart(
+        alt.Chart(_cl).mark_line(strokeWidth=charts.LINE_PX).encode(
+            x=alt.X("date:T", title=""),
+            y=alt.Y("cum:Q", title=""),
+            color=alt.Color("series:N", title="",
+                            scale=alt.Scale(domain=["利差代理收益累计（%）",
+                                                    "ΔOAS 累计（bp）"])),
+            tooltip=[alt.Tooltip("date:T", title="日期"),
+                     alt.Tooltip("cum:Q", format=".2f")],
+        ).properties(height=126, width=charts.facet_width(1)).facet(
+            row=alt.Row("series:N", title="")
+        ).resolve_scale(y="independent"),
+        use_container_width=False,
+    )
+    if not _rho_row.empty:
+        _r = _rho_row.iloc[0]
+        st.caption(
+            "登记值：9141.HK 利差代理 vs 滞后 ΔOAS 的 ρ = "
+            f"{pd.to_numeric(_r['9141.HK'], errors='coerce'):.3f}。"
         )
-        if not _rho_row.empty:
-            _r = _rho_row.iloc[0]
-            st.caption(
-                "登记值：9141.HK 利差代理 vs 滞后 ΔOAS 的 ρ = "
-                f"{pd.to_numeric(_r['9141.HK'], errors='coerce'):.3f}。"
-            )
 
 # ====================================================== 存疑日与基准对照
 _dd = data.doubtful_days()

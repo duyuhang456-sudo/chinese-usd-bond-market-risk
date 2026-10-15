@@ -268,119 +268,118 @@ with page.card("三个检验的 p 值并列：无条件覆盖、独立性、条�
     )
 
 # ================================================= 2｜检验力 ｜ 两个非证据对照
-row2 = st.columns(2, gap="medium")
-with row2[0]:
-    with page.card(labels.TEST_POWER_TITLE,
-                   "全表 262 行的独立性条件 MC p 分布，按检验水平分开；"
-                   "红虚线是 Bonferroni 门槛。", stretch=True):
-        _hist_all = _bt[["conf", "p_ind_mc_cond", "n11"]].copy()
-        _hist_all["p_ind_mc_cond"] = pd.to_numeric(_hist_all["p_ind_mc_cond"],
-                                                   errors="coerce")
-        _hist_all = _hist_all.dropna(subset=["p_ind_mc_cond"])
-        _hist_all["置信度"] = _hist_all["conf"].astype(str) + "%"
-        _hist_all["b"] = (_hist_all["p_ind_mc_cond"] * 20).clip(0, 19.99).astype(int) / 20.0
-        _hist = _hist_all.groupby(["置信度", "b"]).size().reset_index(name="行数")
-        _hist["kind"] = "柱"
-        _hr = pd.DataFrame([{"置信度": c, "b": _bonf, "行数": 0.0, "kind": "线",
-                             "门槛": f"Bonferroni {_bonf:.5f}"} for c in ("95%", "99%")])
-        _h_all = pd.concat([_hist, _hr], ignore_index=True)
 
-        _hbase = alt.Chart(_h_all)
-        _hbar = _hbase.transform_filter(alt.datum.kind == "柱").mark_bar(
-            size=charts.MAX_BAR_PX, cornerRadiusEnd=4, color=_tok["series"][0],
-        ).encode(
-            x=alt.X("b:Q", title="独立性条件 MC p（分箱 0.05）",
-                    scale=alt.Scale(domain=[0, 1])),
-            y=alt.Y("行数:Q", title="行数"),
-            tooltip=[alt.Tooltip("置信度:N"),
-                     alt.Tooltip("b:Q", title="p 分箱下沿", format=".2f"),
-                     alt.Tooltip("行数:Q", title="行数", format=".0f")],
-        )
-        _hrules = _hbase.transform_filter(alt.datum.kind == "线").mark_rule(
-            strokeWidth=1.5, strokeDash=[4, 3], color=_tok["status"]["critical"],
-        ).encode(x="b:Q",
-                 tooltip=[alt.Tooltip("门槛:N", title="门槛"),
-                          alt.Tooltip("b:Q", format=".5f")])
-        _fig = (_hbar + _hrules).properties(
-            height=240, width=charts.facet_width(2)).facet(
-            alt.Column("置信度:N", title="", sort=["95%", "99%"],
-                       header=alt.Header(labelFontSize=10, labelColor=_tok["ink"])),
-            columns=2,
-        )
-        st.altair_chart(_fig, use_container_width=False)
-        charts.data_drawer(
-            _hist_all[["置信度", "p_ind_mc_cond", "n11"]].assign(
-                n11_为零=lambda d: d["n11"] == 0),
-            key="mv_power",
-            title="数据抽屉 · 检验力：独立性条件 MC p 与 n11 逐行",
-            columns=["置信度", "p_ind_mc_cond", "n11", "n11_为零"],
-            note=f"n11 是「连续两天违规」的配对数，99% 档里它全为 0。"
-                 f"{labels.TEST_POWER_NOTE}{labels.MULTIPLE_COMPARISON_NOTE}"
-                 "99% 档的转移四格里 n11 恒为 0，独立性检验因此几乎没有检验力——"
-                 "「未拒绝」是检验力问题，不是模型优劣的证据。",
-            fmt={"p_ind_mc_cond": "%.6f", "n11": "%.0f"},
-            labels={"p_ind_mc_cond": "独立性条件 MC p", "n11": "n11（1→1）",
-                    "n11_为零": "n11 是否为 0"},
-            height=300,
-        )
+with page.card(labels.TEST_POWER_TITLE,
+               "全表 262 行的独立性条件 MC p 分布，按检验水平分开；"
+               "红虚线是 Bonferroni 门槛。"):
+    _hist_all = _bt[["conf", "p_ind_mc_cond", "n11"]].copy()
+    _hist_all["p_ind_mc_cond"] = pd.to_numeric(_hist_all["p_ind_mc_cond"],
+                                               errors="coerce")
+    _hist_all = _hist_all.dropna(subset=["p_ind_mc_cond"])
+    _hist_all["置信度"] = _hist_all["conf"].astype(str) + "%"
+    _hist_all["b"] = (_hist_all["p_ind_mc_cond"] * 20).clip(0, 19.99).astype(int) / 20.0
+    _hist = _hist_all.groupby(["置信度", "b"]).size().reset_index(name="行数")
+    _hist["kind"] = "柱"
+    _hr = pd.DataFrame([{"置信度": c, "b": _bonf, "行数": 0.0, "kind": "线",
+                         "门槛": f"Bonferroni {_bonf:.5f}"} for c in ("95%", "99%")])
+    _h_all = pd.concat([_hist, _hr], ignore_index=True)
 
-with row2[1]:
-    with page.card("两个不作独立证据的对照",
-                   f"{_cal_note}。两者进 CSV 也进检验表，但不参与评选、"
-                   "不画进模型对比图。", stretch=True):
-        _be = data.backtest_exceptions()
-        _be = _be[(_be["caliber"] == caliber) & (_be["conf"].astype(str) == conf)]
-        _m1 = set(_be[_be["model"] == "M1"]["date"].astype(str))
-        _m1d = set(_be[_be["model"] == "M1d"]["date"].astype(str))
-        _gap = len(_m1 ^ _m1d)
+    _hbase = alt.Chart(_h_all)
+    _hbar = _hbase.transform_filter(alt.datum.kind == "柱").mark_bar(
+        size=charts.MAX_BAR_PX, cornerRadiusEnd=4, color=_tok["series"][0],
+    ).encode(
+        x=alt.X("b:Q", title="独立性条件 MC p（分箱 0.05）",
+                scale=alt.Scale(domain=[0, 1])),
+        y=alt.Y("行数:Q", title="行数"),
+        tooltip=[alt.Tooltip("置信度:N"),
+                 alt.Tooltip("b:Q", title="p 分箱下沿", format=".2f"),
+                 alt.Tooltip("行数:Q", title="行数", format=".0f")],
+    )
+    _hrules = _hbase.transform_filter(alt.datum.kind == "线").mark_rule(
+        strokeWidth=1.5, strokeDash=[4, 3], color=_tok["status"]["critical"],
+    ).encode(x="b:Q",
+             tooltip=[alt.Tooltip("门槛:N", title="门槛"),
+                      alt.Tooltip("b:Q", format=".5f")])
+    _fig = (_hbar + _hrules).properties(
+        height=240, width=charts.facet_width(2)).facet(
+        alt.Column("置信度:N", title="", sort=["95%", "99%"],
+                   header=alt.Header(labelFontSize=10, labelColor=_tok["ink"])),
+        columns=2,
+    )
+    st.altair_chart(_fig, use_container_width=False)
+    charts.data_drawer(
+        _hist_all[["置信度", "p_ind_mc_cond", "n11"]].assign(
+            n11_为零=lambda d: d["n11"] == 0),
+        key="mv_power",
+        title="数据抽屉 · 检验力：独立性条件 MC p 与 n11 逐行",
+        columns=["置信度", "p_ind_mc_cond", "n11", "n11_为零"],
+        note=f"n11 是「连续两天违规」的配对数，99% 档里它全为 0。"
+             f"{labels.TEST_POWER_NOTE}{labels.MULTIPLE_COMPARISON_NOTE}"
+             "99% 档的转移四格里 n11 恒为 0，独立性检验因此几乎没有检验力——"
+             "「未拒绝」是检验力问题，不是模型优劣的证据。",
+        fmt={"p_ind_mc_cond": "%.6f", "n11": "%.0f"},
+        labels={"p_ind_mc_cond": "独立性条件 MC p", "n11": "n11（1→1）",
+                "n11_为零": "n11 是否为 0"},
+        height=300,
+    )
 
-        _vp = data.var_parametric()
-        _ratio95 = (_vp["garch_t_var_95"] / _vp["sig_garch_t"]).dropna()
-        _ratio99 = (_vp["garch_t_var_99"] / _vp["sig_garch_t"]).dropna()
 
-        _chk = pd.DataFrame([
-            {"对照": "M1δ", "本页现算的核对": f"与 M1 违规日集合的对称差 {_gap} 天"},
-            {"对照": "M1g-t（95%）",
-             "本页现算的核对": f"VaR ÷ σ 恒为 {_ratio95.mean():.4f}，即正态分位"},
-            {"对照": "M1g-t（99%）",
-             "本页现算的核对": f"VaR ÷ σ 恒为 {_ratio99.mean():.4f}，即正态分位"},
-        ])
-        st.dataframe(_chk, width="stretch", hide_index=True,
-                     height=38 * len(_chk) + 40)
-        charts.data_drawer(
-            pd.DataFrame([
-                {"对照": "M1δ", "口径": labels.CALIBER_SHORT[caliber],
-                 "检验水平": f"{conf}%", "本页现算的核对": "与 M1 的违规日集合对称差",
-                 "读数": f"{_gap} 天"},
-                {"对照": "M1g-t", "口径": labels.CALIBER_SHORT[caliber],
-                 "检验水平": "95%", "本页现算的核对": "garch_t_var_95 ÷ sig_garch_t",
-                 "读数": f"[{_ratio95.min():.6f}, {_ratio95.max():.6f}]"},
-                {"对照": "M1g-t", "口径": labels.CALIBER_SHORT[caliber],
-                 "检验水平": "99%", "本页现算的核对": "garch_t_var_99 ÷ sig_garch_t",
-                 "读数": f"[{_ratio99.min():.6f}, {_ratio99.max():.6f}]"},
-            ]),
-            key="mv_nonevidence",
-            title="数据抽屉 · 两个非证据对照的逐日核对读数",
-            columns=["对照", "口径", "检验水平", "本页现算的核对", "读数"],
-            note="两个对照的处理方式与报告一致：留在产物与检验表里备查，"
-                 "不参与评选。M1δ 与 M1 的违规日逐日相同；"
-                 "M1g-t 的 VaR ÷ σ 恒等于正态分位 1.6449 / 2.3263。"
-                 "M1δ：代数恒等式，不是第二个模型。"
-                 + labels.NON_EVIDENCE_NOTE["M1d"]
-                 + f"本页现算的核对：{labels.CALIBER_SHORT[caliber]} · {conf}% 档下，"
-                   f"M1 违规 {len(_m1)} 天、M1δ 违规 {len(_m1d)} 天，"
-                   f"两者日期集合的对称差 = {_gap} 天。"
-                 + "M1g-t：t 估 σ，但乘正态分位。"
-                 + labels.NON_EVIDENCE_NOTE["M1g-t"]
-                 + f"本页现算的核对：garch_t_var_95 ÷ sig_garch_t 在 "
-                   f"{len(_ratio95)} 个有效值上落在 "
-                   f"[{_ratio95.min():.6f}, {_ratio95.max():.6f}]，99% 档则是 "
-                   f"[{_ratio99.min():.6f}, {_ratio99.max():.6f}]，即正态分位的 "
-                   f"1.6449 与 2.3263，不是 t 分位。"
-                   "两个对照留在产物与检验表里备查，既不进模型对比图，"
-                   "也不进评分卡与定案表。",
-            height=180,
-        )
+with page.card("两个不作独立证据的对照",
+               f"{_cal_note}。两者进 CSV 也进检验表，但不参与评选、"
+               "不画进模型对比图。"):
+    _be = data.backtest_exceptions()
+    _be = _be[(_be["caliber"] == caliber) & (_be["conf"].astype(str) == conf)]
+    _m1 = set(_be[_be["model"] == "M1"]["date"].astype(str))
+    _m1d = set(_be[_be["model"] == "M1d"]["date"].astype(str))
+    _gap = len(_m1 ^ _m1d)
+
+    _vp = data.var_parametric()
+    _ratio95 = (_vp["garch_t_var_95"] / _vp["sig_garch_t"]).dropna()
+    _ratio99 = (_vp["garch_t_var_99"] / _vp["sig_garch_t"]).dropna()
+
+    _chk = pd.DataFrame([
+        {"对照": "M1δ", "本页现算的核对": f"与 M1 违规日集合的对称差 {_gap} 天"},
+        {"对照": "M1g-t（95%）",
+         "本页现算的核对": f"VaR ÷ σ 恒为 {_ratio95.mean():.4f}，即正态分位"},
+        {"对照": "M1g-t（99%）",
+         "本页现算的核对": f"VaR ÷ σ 恒为 {_ratio99.mean():.4f}，即正态分位"},
+    ])
+    st.dataframe(_chk, width="stretch", hide_index=True,
+                 height=38 * len(_chk) + 40)
+    charts.data_drawer(
+        pd.DataFrame([
+            {"对照": "M1δ", "口径": labels.CALIBER_SHORT[caliber],
+             "检验水平": f"{conf}%", "本页现算的核对": "与 M1 的违规日集合对称差",
+             "读数": f"{_gap} 天"},
+            {"对照": "M1g-t", "口径": labels.CALIBER_SHORT[caliber],
+             "检验水平": "95%", "本页现算的核对": "garch_t_var_95 ÷ sig_garch_t",
+             "读数": f"[{_ratio95.min():.6f}, {_ratio95.max():.6f}]"},
+            {"对照": "M1g-t", "口径": labels.CALIBER_SHORT[caliber],
+             "检验水平": "99%", "本页现算的核对": "garch_t_var_99 ÷ sig_garch_t",
+             "读数": f"[{_ratio99.min():.6f}, {_ratio99.max():.6f}]"},
+        ]),
+        key="mv_nonevidence",
+        title="数据抽屉 · 两个非证据对照的逐日核对读数",
+        columns=["对照", "口径", "检验水平", "本页现算的核对", "读数"],
+        note="两个对照的处理方式与报告一致：留在产物与检验表里备查，"
+             "不参与评选。M1δ 与 M1 的违规日逐日相同；"
+             "M1g-t 的 VaR ÷ σ 恒等于正态分位 1.6449 / 2.3263。"
+             "M1δ：代数恒等式，不是第二个模型。"
+             + labels.NON_EVIDENCE_NOTE["M1d"]
+             + f"本页现算的核对：{labels.CALIBER_SHORT[caliber]} · {conf}% 档下，"
+               f"M1 违规 {len(_m1)} 天、M1δ 违规 {len(_m1d)} 天，"
+               f"两者日期集合的对称差 = {_gap} 天。"
+             + "M1g-t：t 估 σ，但乘正态分位。"
+             + labels.NON_EVIDENCE_NOTE["M1g-t"]
+             + f"本页现算的核对：garch_t_var_95 ÷ sig_garch_t 在 "
+               f"{len(_ratio95)} 个有效值上落在 "
+               f"[{_ratio95.min():.6f}, {_ratio95.max():.6f}]，99% 档则是 "
+               f"[{_ratio99.min():.6f}, {_ratio99.max():.6f}]，即正态分位的 "
+               f"1.6449 与 2.3263，不是 t 分位。"
+               "两个对照留在产物与检验表里备查，既不进模型对比图，"
+               "也不进评分卡与定案表。",
+        height=180,
+    )
 
 # ================================================= 3｜五条 σ 路径（满宽）
 _pre = "" if caliber == "主" else "rmb_"
@@ -523,78 +522,76 @@ _fhs = _bt[(_bt["model"].isin(["HS250", "FHS-E", "FHS-G"]))
            & (_bt["caliber"] == caliber) & (_bt["scope"] == _fhs_scope)].copy()
 _fhs["水平"] = _fhs["conf"].astype(str) + "%"
 
-row4 = st.columns(2, gap="medium")
-with row4[0]:
-    with page.card("历史模拟的分位路径：三个窗长各自的经验分位",
-                   f"{labels.CALIBER_FULL[caliber]}。窗越长越平滑、对近期冲击越钝，"
-                   "此图画正值以看量级。", stretch=True):
-        _fig = alt.Chart(_hs).mark_line(strokeWidth=charts.LINE_PX).encode(
-            x=alt.X("date:T", title=""),
-            y=alt.Y("var_pct:Q", title="VaR（%，正值）"),
-            color=alt.Color("窗长:N", title="", sort=["HS250", "HS500", "HS750"]),
-            tooltip=[alt.Tooltip("date:T", title="日期"),
-                     alt.Tooltip("窗长:N"), alt.Tooltip("水平:N"),
-                     alt.Tooltip("var_pct:Q", title="VaR %", format=".4f")],
-        ).properties(height=205, width=charts.facet_width(2)).facet(
-            alt.Column("水平:N", title="", sort=["95% 检验水平", "99% 检验水平"],
-                       header=alt.Header(labelFontSize=10, labelColor=_tok["ink"])),
-            columns=2,
-        ).resolve_scale(y="independent")
-        st.altair_chart(_fig, use_container_width=False)
-        charts.data_drawer(
-            _hs, key="mv_hs",
-            title="数据抽屉 · 三个窗长的 HS 分位逐日值",
-            columns=["date", "窗长", "水平", "var_pct"],
-            labels={"date": "日期", "窗长": "窗长", "水平": "检验水平",
-                    "var_pct": "VaR %"},
-            note="VaR 以正值存，与收益同图时画成 −VaR。三个窗长是相邻形态，"
-                 "配色按固定次序取，不因为某个窗长被筛掉而给幸存序列换色。",
-            fmt={"var_pct": "%.6f"}, height=300,
-        )
+with page.card("历史模拟的分位路径：三个窗长各自的经验分位",
+               f"{labels.CALIBER_FULL[caliber]}。窗越长越平滑、对近期冲击越钝，"
+               "此图画正值以看量级。"):
+    _fig = alt.Chart(_hs).mark_line(strokeWidth=charts.LINE_PX).encode(
+        x=alt.X("date:T", title=""),
+        y=alt.Y("var_pct:Q", title="VaR（%，正值）"),
+        color=alt.Color("窗长:N", title="", sort=["HS250", "HS500", "HS750"]),
+        tooltip=[alt.Tooltip("date:T", title="日期"),
+                 alt.Tooltip("窗长:N"), alt.Tooltip("水平:N"),
+                 alt.Tooltip("var_pct:Q", title="VaR %", format=".4f")],
+    ).properties(height=205, width=charts.facet_width(2)).facet(
+        alt.Column("水平:N", title="", sort=["95% 检验水平", "99% 检验水平"],
+                   header=alt.Header(labelFontSize=10, labelColor=_tok["ink"])),
+        columns=2,
+    ).resolve_scale(y="independent")
+    st.altair_chart(_fig, use_container_width=False)
+    charts.data_drawer(
+        _hs, key="mv_hs",
+        title="数据抽屉 · 三个窗长的 HS 分位逐日值",
+        columns=["date", "窗长", "水平", "var_pct"],
+        labels={"date": "日期", "窗长": "窗长", "水平": "检验水平",
+                "var_pct": "VaR %"},
+        note="VaR 以正值存，与收益同图时画成 −VaR。三个窗长是相邻形态，"
+             "配色按固定次序取，不因为某个窗长被筛掉而给幸存序列换色。",
+        fmt={"var_pct": "%.6f"}, height=300,
+    )
 
-with row4[1]:
-    with page.card("滤波历史模拟对照：滤波把 σ 的时变处理掉了，分位数没变",
-                   f"{labels.CALIBER_FULL[caliber]} · "
-                   f"{labels.SCOPE_LABEL[_fhs_scope]}。柱是真实违规率，"
-                   "红虚线是名义水平。", stretch=True):
-        _fig = alt.Chart(_fhs).mark_bar(
-            size=charts.MAX_BAR_PX, cornerRadiusEnd=4).encode(
-            x=alt.X("model:N", title="", sort=["HS250", "FHS-E", "FHS-G"],
-                    axis=alt.Axis(labelAngle=0)),
-            y=alt.Y("rate_pct:Q", title="真实违规率（%）", scale=alt.Scale(zero=True)),
-            color=alt.Color("水平:N", title="", sort=["95%", "99%"]),
-            xOffset=alt.XOffset("水平:N", sort=["95%", "99%"]),
-            tooltip=[alt.Tooltip("model:N", title="模型"), alt.Tooltip("水平:N"),
-                     alt.Tooltip("rate_pct:Q", title="真实违规率 %", format=".4f"),
-                     alt.Tooltip("x:Q", title="违规次数"),
-                     alt.Tooltip("T:Q", title="样本天数"),
-                     alt.Tooltip("mean_var:Q", title="平均 VaR %", format=".4f")],
-        )
-        _nom = (
-            alt.Chart(pd.DataFrame({"y": [5.0, 1.0], "t": ["名义 5%", "名义 1%"]}))
-            .mark_rule(strokeWidth=1.5, strokeDash=[4, 3],
-                       color=_tok["status"]["critical"])
-            .encode(y="y:Q", tooltip=[alt.Tooltip("t:N"),
-                                      alt.Tooltip("y:Q", format=".1f")])
-        )
-        st.altair_chart((_fig + _nom).properties(height=205), use_container_width=True)
-        st.caption(labels.FHS_NOTE)
-        charts.data_drawer(
-            _fhs[["model", "conf", "T", "x", "rate_pct", "mean_var", "es", "es_ratio",
-                  "p_uc", "p_ind_mc_cond"]],
-            key="mv_fhs",
-            title="数据抽屉 · HS250 / FHS-E / FHS-G 覆盖率与检验对照",
-            columns=["model", "conf", "T", "x", "rate_pct", "mean_var", "es",
-                     "es_ratio", "p_uc", "p_ind_mc_cond"],
-            fmt={"T": "%.0f", "x": "%.0f", "rate_pct": "%.6f", "mean_var": "%.6f",
-                 "es": "%.6f", "es_ratio": "%.4f", "p_uc": "%.6f",
-                 "p_ind_mc_cond": "%.6f"},
-            labels={"model": "模型", "conf": "检验水平", "T": "样本天数",
-                    "x": "违规次数", "rate_pct": "真实违规率 %",
-                    "mean_var": "平均 VaR %", "es": "ES %", "es_ratio": "ES/VaR",
-                    "p_uc": "Kupiec p", "p_ind_mc_cond": "独立性条件 MC p"},
-            height=220,
-        )
+
+with page.card("滤波历史模拟对照：滤波把 σ 的时变处理掉了，分位数没变",
+               f"{labels.CALIBER_FULL[caliber]} · "
+               f"{labels.SCOPE_LABEL[_fhs_scope]}。柱是真实违规率，"
+               "红虚线是名义水平。"):
+    _fig = alt.Chart(_fhs).mark_bar(
+        size=charts.MAX_BAR_PX, cornerRadiusEnd=4).encode(
+        x=alt.X("model:N", title="", sort=["HS250", "FHS-E", "FHS-G"],
+                axis=alt.Axis(labelAngle=0)),
+        y=alt.Y("rate_pct:Q", title="真实违规率（%）", scale=alt.Scale(zero=True)),
+        color=alt.Color("水平:N", title="", sort=["95%", "99%"]),
+        xOffset=alt.XOffset("水平:N", sort=["95%", "99%"]),
+        tooltip=[alt.Tooltip("model:N", title="模型"), alt.Tooltip("水平:N"),
+                 alt.Tooltip("rate_pct:Q", title="真实违规率 %", format=".4f"),
+                 alt.Tooltip("x:Q", title="违规次数"),
+                 alt.Tooltip("T:Q", title="样本天数"),
+                 alt.Tooltip("mean_var:Q", title="平均 VaR %", format=".4f")],
+    )
+    _nom = (
+        alt.Chart(pd.DataFrame({"y": [5.0, 1.0], "t": ["名义 5%", "名义 1%"]}))
+        .mark_rule(strokeWidth=1.5, strokeDash=[4, 3],
+                   color=_tok["status"]["critical"])
+        .encode(y="y:Q", tooltip=[alt.Tooltip("t:N"),
+                                  alt.Tooltip("y:Q", format=".1f")])
+    )
+    st.altair_chart((_fig + _nom).properties(height=205), use_container_width=True)
+    st.caption(labels.FHS_NOTE)
+    charts.data_drawer(
+        _fhs[["model", "conf", "T", "x", "rate_pct", "mean_var", "es", "es_ratio",
+              "p_uc", "p_ind_mc_cond"]],
+        key="mv_fhs",
+        title="数据抽屉 · HS250 / FHS-E / FHS-G 覆盖率与检验对照",
+        columns=["model", "conf", "T", "x", "rate_pct", "mean_var", "es",
+                 "es_ratio", "p_uc", "p_ind_mc_cond"],
+        fmt={"T": "%.0f", "x": "%.0f", "rate_pct": "%.6f", "mean_var": "%.6f",
+             "es": "%.6f", "es_ratio": "%.4f", "p_uc": "%.6f",
+             "p_ind_mc_cond": "%.6f"},
+        labels={"model": "模型", "conf": "检验水平", "T": "样本天数",
+                "x": "违规次数", "rate_pct": "真实违规率 %",
+                "mean_var": "平均 VaR %", "es": "ES %", "es_ratio": "ES/VaR",
+                "p_uc": "Kupiec p", "p_ind_mc_cond": "独立性条件 MC p"},
+        height=220,
+    )
 
 page.footer(
     "results/backtest_results.csv、results/var_parametric.csv、"

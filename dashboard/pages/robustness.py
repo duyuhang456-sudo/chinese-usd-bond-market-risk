@@ -189,141 +189,140 @@ with page.card("库级覆盖度：库内最深的那条够不够深",
     )
 
 # ------------------------------------------------------------ 2 窗口平移 ｜ 3 信用路径
-_r2 = st.columns(2, gap="medium")
 
-with _r2[0]:
-    with page.card("窗口起止平移：最差单日会随窗口移动改数",
-                   "窗口起止同时平移 ±2 个交易日、窗长不变。", stretch=True):
-        ws = data.stress_window_sens()
-        ws = ws[ws["caliber"] == caliber].copy()
-        longw = ws.melt(id_vars=["scenario_id", "shift_days"],
-                        value_vars=["worst_day_pct", "mdd_pct"],
-                        var_name="kind", value_name="loss")
-        longw["kind"] = longw["kind"].map({"worst_day_pct": "窗内最差单日",
-                                           "mdd_pct": "窗内最大回撤"})
-        _lines = alt.Chart(longw).mark_line(strokeWidth=charts.LINE_PX).encode(
-            x=alt.X("shift_days:Q", title="窗口平移（交易日）",
-                    axis=alt.Axis(tickMinStep=1)),
-            y=alt.Y("loss:Q", title="损失（%）"),
-            color=alt.Color("scenario_id:N", title="",
-                            scale=alt.Scale(domain=list(dict.fromkeys(ws["scenario_id"])))),
-            tooltip=[alt.Tooltip("scenario_id:N", title="情景"),
-                     alt.Tooltip("shift_days:Q", title="平移"),
-                     alt.Tooltip("loss:Q", title="损失 %", format=".4f")],
-        )
-        _dots = _lines.mark_point(size=charts.MARKER_PX, filled=True,
-                                  stroke=_tok["surface"],
-                                  strokeWidth=charts.SURFACE_RING)
-        _fac = (_lines + _dots).properties(
-            height=112, width=charts.facet_width(1)).facet(
-            row=alt.Row("kind:N", title="", sort=["窗内最差单日", "窗内最大回撤"])
-        ).resolve_scale(y="independent")
-        st.altair_chart(_fac, use_container_width=False)
 
-        base_wd = ws[ws["shift_days"] == 0].set_index("scenario_id")["worst_day_pct"]
-        tab = ws.groupby("scenario_id").agg(
-            期限=("n_days", "first"),
-            最差单日区间下沿=("worst_day_pct", "min"),
-            最差单日区间上沿=("worst_day_pct", "max"),
-            回撤区间下沿=("mdd_pct", "min"),
-            回撤区间上沿=("mdd_pct", "max"),
+with page.card("窗口起止平移：最差单日会随窗口移动改数",
+               "窗口起止同时平移 ±2 个交易日、窗长不变。"):
+    ws = data.stress_window_sens()
+    ws = ws[ws["caliber"] == caliber].copy()
+    longw = ws.melt(id_vars=["scenario_id", "shift_days"],
+                    value_vars=["worst_day_pct", "mdd_pct"],
+                    var_name="kind", value_name="loss")
+    longw["kind"] = longw["kind"].map({"worst_day_pct": "窗内最差单日",
+                                       "mdd_pct": "窗内最大回撤"})
+    _lines = alt.Chart(longw).mark_line(strokeWidth=charts.LINE_PX).encode(
+        x=alt.X("shift_days:Q", title="窗口平移（交易日）",
+                axis=alt.Axis(tickMinStep=1)),
+        y=alt.Y("loss:Q", title="损失（%）"),
+        color=alt.Color("scenario_id:N", title="",
+                        scale=alt.Scale(domain=list(dict.fromkeys(ws["scenario_id"])))),
+        tooltip=[alt.Tooltip("scenario_id:N", title="情景"),
+                 alt.Tooltip("shift_days:Q", title="平移"),
+                 alt.Tooltip("loss:Q", title="损失 %", format=".4f")],
+    )
+    _dots = _lines.mark_point(size=charts.MARKER_PX, filled=True,
+                              stroke=_tok["surface"],
+                              strokeWidth=charts.SURFACE_RING)
+    _fac = (_lines + _dots).properties(
+        height=112, width=charts.facet_width(1)).facet(
+        row=alt.Row("kind:N", title="", sort=["窗内最差单日", "窗内最大回撤"])
+    ).resolve_scale(y="independent")
+    st.altair_chart(_fac, use_container_width=False)
+
+    base_wd = ws[ws["shift_days"] == 0].set_index("scenario_id")["worst_day_pct"]
+    tab = ws.groupby("scenario_id").agg(
+        期限=("n_days", "first"),
+        最差单日区间下沿=("worst_day_pct", "min"),
+        最差单日区间上沿=("worst_day_pct", "max"),
+        回撤区间下沿=("mdd_pct", "min"),
+        回撤区间上沿=("mdd_pct", "max"),
+    )
+    tab.insert(1, "最差单日基准", base_wd)
+    tab["最差单日极差"] = tab["最差单日区间上沿"] - tab["最差单日区间下沿"]
+    tab["回撤极差"] = tab["回撤区间上沿"] - tab["回撤区间下沿"]
+    tab = tab.round(4)
+    tab.index.name = "情景"
+    fixed = tab.index[tab["最差单日极差"] == 0].tolist()
+    nz = tab.loc[tab["最差单日极差"] > 0, "最差单日极差"]
+    _win_note = (
+        f"{labels.CALIBER_SHORT[caliber]}下 {len(tab)} 个历史与补充情景里，"
+        f"有 {len(fixed)} 个（{'、'.join(fixed)}）的最差单日读数在全部五个平移位置上完全不动，"
+        "因为最差的那一天始终落在窗内。"
+        + (f"其余情景的极差 {nz.min():.4f} ~ {nz.max():.4f}pp，"
+           f"最大者 {tab['最差单日极差'].idxmax()}——平移到 ±1 / ±2 后最差日被移出窗口。"
+           if not nz.empty else "")
+    )
+    st.caption("最差单日极差都不超过各自的回撤极差：1 日口径比窗内最大回撤更稳健，"
+               "但仍应给区间而不是单点值。")
+    charts.data_drawer(
+        tab.reset_index(), key="rq_win",
+        title="数据抽屉 · 窗口平移：最差单日与回撤的五档区间",
+        height=300,
+        note="报告按「情景 × 口径」十个组合统计，其中 3 个（H1 主、H1 次、H2 主）"
+             "在全部五个平移位置上完全不动。" + _win_note,
+        fmt={"期限": "%.0f", "最差单日基准": "%.4f", "最差单日区间下沿": "%.4f",
+             "最差单日区间上沿": "%.4f", "最差单日极差": "%.4f",
+             "回撤区间下沿": "%.4f", "回撤区间上沿": "%.4f", "回撤极差": "%.4f"},
+    )
+
+
+with page.card("信用路径：给的是区间不是点",
+               "只画有信用分量的情景，纯汇率与纯利率情景没有这一项。"):
+    cr = si[si["credit_range_lo_pct"].notna()].copy()
+    if cr.empty:
+        st.info("当前口径下没有带信用路径区间的情景。")
+    else:
+        _order = list(cr.sort_values("credit_range_hi_pct", ascending=False)["scenario_id"])
+        _y = alt.Y("scenario_id:N", title="", sort=_order)
+        _rule = alt.Chart(cr).mark_rule(strokeWidth=6, color=_tok["muted"],
+                                        opacity=0.40).encode(
+            y=_y,
+            x=alt.X("credit_range_lo_pct:Q", title="损失（%，正值 = 损失）"),
+            x2=alt.X2("credit_range_hi_pct:Q"),
+            tooltip=[alt.Tooltip("scenario_id:N", title="编号"),
+                     alt.Tooltip("scenario_name:N", title="情景"),
+                     alt.Tooltip("credit_range_lo_pct:Q", title="区间下端 %",
+                                 format=".4f"),
+                     alt.Tooltip("credit_range_hi_pct:Q", title="区间上端 %",
+                                 format=".4f")],
         )
-        tab.insert(1, "最差单日基准", base_wd)
-        tab["最差单日极差"] = tab["最差单日区间上沿"] - tab["最差单日区间下沿"]
-        tab["回撤极差"] = tab["回撤区间上沿"] - tab["回撤区间下沿"]
-        tab = tab.round(4)
-        tab.index.name = "情景"
-        fixed = tab.index[tab["最差单日极差"] == 0].tolist()
-        nz = tab.loc[tab["最差单日极差"] > 0, "最差单日极差"]
-        _win_note = (
-            f"{labels.CALIBER_SHORT[caliber]}下 {len(tab)} 个历史与补充情景里，"
-            f"有 {len(fixed)} 个（{'、'.join(fixed)}）的最差单日读数在全部五个平移位置上完全不动，"
-            "因为最差的那一天始终落在窗内。"
-            + (f"其余情景的极差 {nz.min():.4f} ~ {nz.max():.4f}pp，"
-               f"最大者 {tab['最差单日极差'].idxmax()}——平移到 ±1 / ±2 后最差日被移出窗口。"
-               if not nz.empty else "")
+        _dm = alt.Chart(cr).mark_point(
+            size=110, filled=True, color=_tok["series"][0],
+            stroke=_tok["surface"], strokeWidth=charts.SURFACE_RING).encode(
+            y=_y, x=alt.X("worst_day_modeled_pct:Q"),
+            tooltip=[alt.Tooltip("scenario_id:N", title="编号"),
+                     alt.Tooltip("worst_day_modeled_pct:Q", title="δ 点估计 %",
+                                 format=".4f")])
+        _db = alt.Chart(cr).mark_point(
+            size=110, filled=True, color=_tok["series"][1],
+            stroke=_tok["surface"], strokeWidth=charts.SURFACE_RING).encode(
+            y=_y, x=alt.X("loss_after_buffer_pct:Q"),
+            tooltip=[alt.Tooltip("scenario_id:N", title="编号"),
+                     alt.Tooltip("loss_after_buffer_pct:Q", title="点估计 + 缓冲 %",
+                                 format=".4f")])
+        st.altair_chart(
+            _vrefs(_rule + _dm + _db,
+                   [(es_line, f"判定线 {es_line:.4f}%", _tok["status"]["critical"])]
+                   ).properties(height=215),
+            use_container_width=True,
         )
-        st.caption("最差单日极差都不超过各自的回撤极差：1 日口径比窗内最大回撤更稳健，"
-                   "但仍应给区间而不是单点值。")
+        _n_lo = int((cr["credit_range_lo_pct"] > es_line).sum())
+        _n_hi = int((cr["credit_range_hi_pct"] > es_line).sum())
+        st.caption(
+            f"灰条 = 信用路径区间，蓝点 = δ 点估计，橙点 = 点估计加缓冲，"
+            f"红虚线 = 判定线 {es_line:.4f}%。"
+            f"{len(cr)} 条里下端越过判定线的 {_n_lo} 条、上端 {_n_hi} 条。"
+        )
         charts.data_drawer(
-            tab.reset_index(), key="rq_win",
-            title="数据抽屉 · 窗口平移：最差单日与回撤的五档区间",
-            height=300,
-            note="报告按「情景 × 口径」十个组合统计，其中 3 个（H1 主、H1 次、H2 主）"
-                 "在全部五个平移位置上完全不动。" + _win_note,
-            fmt={"期限": "%.0f", "最差单日基准": "%.4f", "最差单日区间下沿": "%.4f",
-                 "最差单日区间上沿": "%.4f", "最差单日极差": "%.4f",
-                 "回撤区间下沿": "%.4f", "回撤区间上沿": "%.4f", "回撤极差": "%.4f"},
+            cr, key="rq_credit",
+            title="数据抽屉 · 信用路径：区间两端、点估计与缓冲",
+            height=280,
+            note="区间**下端**是平静样本的弱传导端（OLS 95% 置信区间的弱端，再加缓冲），"
+                 "**上端**是弱端再加 2022 年未解释残差极值 1.1147pp（1 日窗）——"
+                 "该加项本身是对偏差的修正，故上端不再叠缓冲。"
+                 "上端越线不能读成「信用维度已经超过判定线」——它主要由那个加项抬上去，"
+                 "而且信用维度作为参考项的定性没有改变：δ 估计自 2023-09 之后的平静子样本，"
+                 "不反映外推到危机的主要风险。报告主张两个口径并列披露、不取其一。",
+            fmt={"worst_day_modeled_pct": "%.4f", "loss_after_buffer_pct": "%.4f",
+                 "credit_range_lo_pct": "%.4f", "credit_range_hi_pct": "%.4f",
+                 "es_1d_99_pct": "%.4f"},
+            labels={"scenario_id": "编号", "scenario_name": "情景",
+                    "worst_day_modeled_pct": "δ 点估计 %",
+                    "loss_after_buffer_pct": "点估计 + 缓冲 %",
+                    "credit_range_lo_pct": "区间下端 %",
+                    "credit_range_hi_pct": "区间上端 %",
+                    "es_1d_99_pct": "判定线 %", "credit_range_note": "区间说明"},
         )
-
-with _r2[1]:
-    with page.card("信用路径：给的是区间不是点",
-                   "只画有信用分量的情景，纯汇率与纯利率情景没有这一项。", stretch=True):
-        cr = si[si["credit_range_lo_pct"].notna()].copy()
-        if cr.empty:
-            st.info("当前口径下没有带信用路径区间的情景。")
-        else:
-            _order = list(cr.sort_values("credit_range_hi_pct", ascending=False)["scenario_id"])
-            _y = alt.Y("scenario_id:N", title="", sort=_order)
-            _rule = alt.Chart(cr).mark_rule(strokeWidth=6, color=_tok["muted"],
-                                            opacity=0.40).encode(
-                y=_y,
-                x=alt.X("credit_range_lo_pct:Q", title="损失（%，正值 = 损失）"),
-                x2=alt.X2("credit_range_hi_pct:Q"),
-                tooltip=[alt.Tooltip("scenario_id:N", title="编号"),
-                         alt.Tooltip("scenario_name:N", title="情景"),
-                         alt.Tooltip("credit_range_lo_pct:Q", title="区间下端 %",
-                                     format=".4f"),
-                         alt.Tooltip("credit_range_hi_pct:Q", title="区间上端 %",
-                                     format=".4f")],
-            )
-            _dm = alt.Chart(cr).mark_point(
-                size=110, filled=True, color=_tok["series"][0],
-                stroke=_tok["surface"], strokeWidth=charts.SURFACE_RING).encode(
-                y=_y, x=alt.X("worst_day_modeled_pct:Q"),
-                tooltip=[alt.Tooltip("scenario_id:N", title="编号"),
-                         alt.Tooltip("worst_day_modeled_pct:Q", title="δ 点估计 %",
-                                     format=".4f")])
-            _db = alt.Chart(cr).mark_point(
-                size=110, filled=True, color=_tok["series"][1],
-                stroke=_tok["surface"], strokeWidth=charts.SURFACE_RING).encode(
-                y=_y, x=alt.X("loss_after_buffer_pct:Q"),
-                tooltip=[alt.Tooltip("scenario_id:N", title="编号"),
-                         alt.Tooltip("loss_after_buffer_pct:Q", title="点估计 + 缓冲 %",
-                                     format=".4f")])
-            st.altair_chart(
-                _vrefs(_rule + _dm + _db,
-                       [(es_line, f"判定线 {es_line:.4f}%", _tok["status"]["critical"])]
-                       ).properties(height=215),
-                use_container_width=True,
-            )
-            _n_lo = int((cr["credit_range_lo_pct"] > es_line).sum())
-            _n_hi = int((cr["credit_range_hi_pct"] > es_line).sum())
-            st.caption(
-                f"灰条 = 信用路径区间，蓝点 = δ 点估计，橙点 = 点估计加缓冲，"
-                f"红虚线 = 判定线 {es_line:.4f}%。"
-                f"{len(cr)} 条里下端越过判定线的 {_n_lo} 条、上端 {_n_hi} 条。"
-            )
-            charts.data_drawer(
-                cr, key="rq_credit",
-                title="数据抽屉 · 信用路径：区间两端、点估计与缓冲",
-                height=280,
-                note="区间**下端**是平静样本的弱传导端（OLS 95% 置信区间的弱端，再加缓冲），"
-                     "**上端**是弱端再加 2022 年未解释残差极值 1.1147pp（1 日窗）——"
-                     "该加项本身是对偏差的修正，故上端不再叠缓冲。"
-                     "上端越线不能读成「信用维度已经超过判定线」——它主要由那个加项抬上去，"
-                     "而且信用维度作为参考项的定性没有改变：δ 估计自 2023-09 之后的平静子样本，"
-                     "不反映外推到危机的主要风险。报告主张两个口径并列披露、不取其一。",
-                fmt={"worst_day_modeled_pct": "%.4f", "loss_after_buffer_pct": "%.4f",
-                     "credit_range_lo_pct": "%.4f", "credit_range_hi_pct": "%.4f",
-                     "es_1d_99_pct": "%.4f"},
-                labels={"scenario_id": "编号", "scenario_name": "情景",
-                        "worst_day_modeled_pct": "δ 点估计 %",
-                        "loss_after_buffer_pct": "点估计 + 缓冲 %",
-                        "credit_range_lo_pct": "区间下端 %",
-                        "credit_range_hi_pct": "区间上端 %",
-                        "es_1d_99_pct": "判定线 %", "credit_range_note": "区间说明"},
-            )
 
 # ------------------------------------------------------------ 4 缓冲五档（满宽）
 with page.card("缓冲五档：名单长度随档位逐档变长，二值判定不稳健",
@@ -498,96 +497,94 @@ with page.card("阈值口径核对：名单长度变，头部不变",
     )
 
 # ------------------------------------------------------------ 7 附录（两件并排）
-_r4 = st.columns(2, gap="medium")
 
-with _r4[0]:
-    with page.card("附录：√t 缩放与多期最差窗",
-                   "多期读数不参与判定。√t 未做独立回测验证，只能读作「若强行用 √t "
-                   "会得到什么量级」。", stretch=True):
-        sh = data.stress_shift_coverage()
-        _sl = alt.Chart(sh).mark_line(strokeWidth=charts.LINE_PX).encode(
-            x=alt.X("horizon_days:Q", title="持有期（交易日）", axis=alt.Axis(tickMinStep=1)),
-            y=alt.Y("sqrt_t_es99_ref_pct:Q", title="√t × 1 日 99% 期望损失（%）"),
-            color=alt.Color("caliber:N", title="", scale=alt.Scale(domain=["主", "次"])),
-            tooltip=[alt.Tooltip("caliber:N", title="口径"),
-                     alt.Tooltip("horizon_days:Q", title="期限"),
-                     alt.Tooltip("sqrt_t_var95_ref_pct:Q", title="√t 95% VaR %",
-                                 format=".4f"),
-                     alt.Tooltip("sqrt_t_var99_ref_pct:Q", title="√t 99% VaR %",
-                                 format=".4f"),
-                     alt.Tooltip("sqrt_t_es99_ref_pct:Q", title="√t 99% ES %",
-                                 format=".4f"),
-                     alt.Tooltip("hist_worst_pct:Q", title="同期限实测最差 %",
-                                 format=".4f"),
-                     alt.Tooltip("is_main_horizon:N", title="是否登记档")],
-        )
-        _sp = _sl.mark_point(size=charts.MARKER_PX, filled=True,
-                             stroke=_tok["surface"], strokeWidth=charts.SURFACE_RING)
-        st.altair_chart((_sl + _sp).properties(height=205), use_container_width=True)
-        _n_below = int((sh["sqrt_t_es99_ref_pct"] < sh["hist_worst_pct"]).sum())
-        st.caption(
-            f"√t 参考值在全部 {len(sh)} 个（期限 × 口径）组合上都低于同期限实测最差"
-            f"（{_n_below} / {len(sh)}）：波动聚集的直接后果，不是随机误差。"
-        )
-        charts.data_drawer(
-            sh, key="rq_sqrt",
-            title="数据抽屉 · √t 参考值：各期限的缩放对照与实测最差",
-            height=260,
-            note="本节的 1 日以外的实测最差取自滚动窗内最差单日，聚集段里的连续下跌被 √t 拉平了。"
-                 "本节与上面各节的 1 日基准**不同量纲**，不参与任何判定。",
-            fmt={"horizon_days": "%.0f", "sqrt_t_var95_ref_pct": "%.4f",
-                 "sqrt_t_var99_ref_pct": "%.4f", "sqrt_t_es99_ref_pct": "%.4f",
-                 "hist_worst_pct": "%.4f", "residual_gap_pct": "%.4f",
-                 "deepest_loss_shifted": "%.4f"},
-            labels={"horizon_days": "期限", "caliber": "口径", "is_main_horizon": "登记档",
-                    "sqrt_t_var95_ref_pct": "√t 95% VaR %",
-                    "sqrt_t_var99_ref_pct": "√t 99% VaR %",
-                    "sqrt_t_es99_ref_pct": "√t 99% ES %",
-                    "hist_worst_pct": "同期限实测最差 %",
-                    "residual_gap_pct": "覆盖缺口 pp",
-                    "deepest_scenario": "库内最深情景",
-                    "deepest_loss_shifted": "最深情景损失 %", "ref_note": "说明"},
-        )
 
-with _r4[1]:
-    with page.card("附录：各期限前十最差窗",
-                   "同样是多期读数、不参与判定；1 日档那一列就是覆盖度里实测最差单日的出处。",
-                   stretch=True):
-        ww = data.stress_worst_windows()
-        _hz = sorted(ww["horizon_days"].unique())
-        _wb = alt.Chart(ww).mark_bar(size=9, cornerRadiusEnd=4).encode(
-            y=alt.Y("rank:Q", title="排名（1 = 最差）", axis=alt.Axis(tickMinStep=1),
-                    scale=alt.Scale(reverse=True)),
-            x=alt.X("loss_pct:Q", title="窗内损失（%，正值 = 损失）"),
-            color=alt.Color("caliber:N", title="", scale=alt.Scale(domain=["主", "次"])),
-            tooltip=[alt.Tooltip("caliber:N", title="口径"),
-                     alt.Tooltip("horizon_days:Q", title="期限"),
-                     alt.Tooltip("rank:Q", title="排名"),
-                     alt.Tooltip("window_start:T", title="窗起"),
-                     alt.Tooltip("window_end:T", title="窗止"),
-                     alt.Tooltip("loss_pct:Q", title="损失 %", format=".4f")],
-        )
-        # 四个持有期：并排四格在半个卡片里每格只剩 70 多 px，折成两行两列。
-        st.altair_chart(
-            _wb.properties(height=170, width=charts.facet_width(2)).facet(
-                alt.Facet("horizon_days:N", title="持有期（交易日）",
-                          sort=[str(h) for h in _hz]),
-                columns=2,
-            ).resolve_scale(y="independent"),
-            use_container_width=False,
-        )
-        st.caption(
-            "各期限前十最差窗，两口径并排。1 日档（左起第一列）就是覆盖度那条实测最差单日的出处"
-            "——主 2022-06-13 的 1.3449%、次 2022-09-29 的 1.4739%。"
-        )
-        charts.data_drawer(
-            ww, key="rq_ww", title="数据抽屉 · 最差窗明细：各期限前十窗口",
-            height=300,
-            fmt={"horizon_days": "%.0f", "rank": "%.0f", "loss_pct": "%.4f"},
-            labels={"horizon_days": "期限", "is_main_horizon": "登记档", "caliber": "口径",
-                    "rank": "排名", "window_start": "窗起", "window_end": "窗止",
-                    "loss_pct": "损失 %", "caliber_note": "说明"},
-        )
+with page.card("附录：√t 缩放与多期最差窗",
+               "多期读数不参与判定。√t 未做独立回测验证，只能读作「若强行用 √t "
+               "会得到什么量级」。"):
+    sh = data.stress_shift_coverage()
+    _sl = alt.Chart(sh).mark_line(strokeWidth=charts.LINE_PX).encode(
+        x=alt.X("horizon_days:Q", title="持有期（交易日）", axis=alt.Axis(tickMinStep=1)),
+        y=alt.Y("sqrt_t_es99_ref_pct:Q", title="√t × 1 日 99% 期望损失（%）"),
+        color=alt.Color("caliber:N", title="", scale=alt.Scale(domain=["主", "次"])),
+        tooltip=[alt.Tooltip("caliber:N", title="口径"),
+                 alt.Tooltip("horizon_days:Q", title="期限"),
+                 alt.Tooltip("sqrt_t_var95_ref_pct:Q", title="√t 95% VaR %",
+                             format=".4f"),
+                 alt.Tooltip("sqrt_t_var99_ref_pct:Q", title="√t 99% VaR %",
+                             format=".4f"),
+                 alt.Tooltip("sqrt_t_es99_ref_pct:Q", title="√t 99% ES %",
+                             format=".4f"),
+                 alt.Tooltip("hist_worst_pct:Q", title="同期限实测最差 %",
+                             format=".4f"),
+                 alt.Tooltip("is_main_horizon:N", title="是否登记档")],
+    )
+    _sp = _sl.mark_point(size=charts.MARKER_PX, filled=True,
+                         stroke=_tok["surface"], strokeWidth=charts.SURFACE_RING)
+    st.altair_chart((_sl + _sp).properties(height=205), use_container_width=True)
+    _n_below = int((sh["sqrt_t_es99_ref_pct"] < sh["hist_worst_pct"]).sum())
+    st.caption(
+        f"√t 参考值在全部 {len(sh)} 个（期限 × 口径）组合上都低于同期限实测最差"
+        f"（{_n_below} / {len(sh)}）：波动聚集的直接后果，不是随机误差。"
+    )
+    charts.data_drawer(
+        sh, key="rq_sqrt",
+        title="数据抽屉 · √t 参考值：各期限的缩放对照与实测最差",
+        height=260,
+        note="本节的 1 日以外的实测最差取自滚动窗内最差单日，聚集段里的连续下跌被 √t 拉平了。"
+             "本节与上面各节的 1 日基准**不同量纲**，不参与任何判定。",
+        fmt={"horizon_days": "%.0f", "sqrt_t_var95_ref_pct": "%.4f",
+             "sqrt_t_var99_ref_pct": "%.4f", "sqrt_t_es99_ref_pct": "%.4f",
+             "hist_worst_pct": "%.4f", "residual_gap_pct": "%.4f",
+             "deepest_loss_shifted": "%.4f"},
+        labels={"horizon_days": "期限", "caliber": "口径", "is_main_horizon": "登记档",
+                "sqrt_t_var95_ref_pct": "√t 95% VaR %",
+                "sqrt_t_var99_ref_pct": "√t 99% VaR %",
+                "sqrt_t_es99_ref_pct": "√t 99% ES %",
+                "hist_worst_pct": "同期限实测最差 %",
+                "residual_gap_pct": "覆盖缺口 pp",
+                "deepest_scenario": "库内最深情景",
+                "deepest_loss_shifted": "最深情景损失 %", "ref_note": "说明"},
+    )
+
+
+with page.card("附录：各期限前十最差窗",
+               "同样是多期读数、不参与判定；1 日档那一列就是覆盖度里实测最差单日的出处。"):
+    ww = data.stress_worst_windows()
+    _hz = sorted(ww["horizon_days"].unique())
+    _wb = alt.Chart(ww).mark_bar(size=9, cornerRadiusEnd=4).encode(
+        y=alt.Y("rank:Q", title="排名（1 = 最差）", axis=alt.Axis(tickMinStep=1),
+                scale=alt.Scale(reverse=True)),
+        x=alt.X("loss_pct:Q", title="窗内损失（%，正值 = 损失）"),
+        color=alt.Color("caliber:N", title="", scale=alt.Scale(domain=["主", "次"])),
+        tooltip=[alt.Tooltip("caliber:N", title="口径"),
+                 alt.Tooltip("horizon_days:Q", title="期限"),
+                 alt.Tooltip("rank:Q", title="排名"),
+                 alt.Tooltip("window_start:T", title="窗起"),
+                 alt.Tooltip("window_end:T", title="窗止"),
+                 alt.Tooltip("loss_pct:Q", title="损失 %", format=".4f")],
+    )
+    # 四个持有期：并排四格在半个卡片里每格只剩 70 多 px，折成两行两列。
+    st.altair_chart(
+        _wb.properties(height=170, width=charts.facet_width(2)).facet(
+            alt.Facet("horizon_days:N", title="持有期（交易日）",
+                      sort=[str(h) for h in _hz]),
+            columns=2,
+        ).resolve_scale(y="independent"),
+        use_container_width=False,
+    )
+    st.caption(
+        "各期限前十最差窗，两口径并排。1 日档（左起第一列）就是覆盖度那条实测最差单日的出处"
+        "——主 2022-06-13 的 1.3449%、次 2022-09-29 的 1.4739%。"
+    )
+    charts.data_drawer(
+        ww, key="rq_ww", title="数据抽屉 · 最差窗明细：各期限前十窗口",
+        height=300,
+        fmt={"horizon_days": "%.0f", "rank": "%.0f", "loss_pct": "%.4f"},
+        labels={"horizon_days": "期限", "is_main_horizon": "登记档", "caliber": "口径",
+                "rank": "排名", "window_start": "窗起", "window_end": "窗止",
+                "loss_pct": "损失 %", "caliber_note": "说明"},
+    )
 
 page.footer(
     "results/stress_coverage.csv、stress_shift_coverage.csv、stress_window_sens.csv、"

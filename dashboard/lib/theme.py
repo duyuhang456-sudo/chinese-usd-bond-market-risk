@@ -61,7 +61,7 @@ _TOKENS = {
     "light": {
         # 底与面
         "page": "#F7F5F0",        # 内容页米白（= config.toml 的 backgroundColor）
-        "surface": "#FFFFFF",     # 卡片白底（= secondaryBackgroundColor）
+        "surface": "#F7F5F0",     # 卡片/图底色＝同页面米白，一片纸色、只靠边框区隔
         # 文字：由强到弱
         "ink": "#16283C",         # 标题
         "ink2": "#465667",        # 正文
@@ -145,8 +145,8 @@ def series_color(i: int, mode: str | None = None) -> str:
 def _theme_config(mode: str) -> dict:
     t = _TOKENS[mode]
     return {
-        # 图落在卡片里，卡片是白底（浅色）／浅一档的深蓝（深色），
-        # 所以图的底色取 surface 而不是 page，图与卡片才不是两块颜色。
+        # 图落在卡片里，图底色取 surface：浅色=同页面米白（整页一片纸色），
+        # 深色=浅一档深蓝，图与卡片同色边界自然。
         "background": t["surface"],
         "font": FONT_STACK,
         "config": {
