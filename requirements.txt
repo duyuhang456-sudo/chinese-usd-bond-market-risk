@@ -14,7 +14,7 @@ kiwisolver==1.4.7
 matplotlib==3.9.4
 multitasking==0.0.13
 numpy==2.0.2
-packaging==26.3
+packaging==25.0
 pandas==2.3.3
 patsy==1.0.3
 peewee==4.5.0
@@ -37,3 +37,9 @@ urllib3==2.6.3
 websockets==15.0.1
 yfinance==1.2.0
 zipp==3.23.1
+
+# 交互看板（dashboard/）的额外依赖，单独成文件。写在这里是为了让从零建环境
+# 与 Streamlit Community Cloud 只读 requirements.txt 也能装到 streamlit；
+# 计量链路的 26 个脚本不 import 其中任何一个包，唯一一处关联是 packaging 的
+# 版本区间（见 requirements-dashboard.txt 的说明）。
+-r requirements-dashboard.txt

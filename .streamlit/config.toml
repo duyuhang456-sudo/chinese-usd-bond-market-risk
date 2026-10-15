@@ -1,0 +1,58 @@
+# 看板的 Streamlit 配置。放在仓库根而不是 dashboard/ 下：
+# Streamlit 只按当前工作目录找配置，而 Streamlit Community Cloud 也从仓库根读它。
+# 因此规范启动命令是在仓库根执行 .venv/bin/streamlit run dashboard/app.py。
+# 数据路径一律由 dashboard/lib/paths.py 从 __file__ 解析，从别的目录启动只会丢主题、
+# 不会读错数据。
+#
+# **界面的全部外观都在这份文件里，代码不注入任何 CSS。** 这是 Streamlit 官方设计
+# 规范的做法（仓库内 design.md：「Do not use custom CSS to polish an app unless the
+# user explicitly asks for it」）：原生主题跨元素一致，且不会随 Streamlit 内部
+# class 名变化而失效。
+#
+# 配色与 dashboard/lib/theme.py 的令牌必须一致——图表外观由那边的 Altair 主题负责，
+# 这里的两个 chart*Colors 是同一套色给原生图表用。两处对不上，页面与图会分裂成
+# 两套观感。tools/check_palette.py 会拿这份文件与令牌对账，改一处就得改另一处。
+
+[theme]
+# 浅色＝结项汇报的内容页：米白底、白卡片、深蓝焦点色、暖灰边。
+base = "light"
+backgroundColor = "#F7F5F0"            # 内容页米白
+secondaryBackgroundColor = "#FFFFFF"   # 卡片白底
+textColor = "#465667"                  # 正文
+linkColor = "#8C6832"                  # 金字，不用金 #C9A66B——那个当文字只有约 2:1
+borderColor = "#E3DDD1"
+dataframeHeaderBackgroundColor = "#EFEAE0"
+# 控件强调用深蓝而不是金色：金色对米白底约 2:1，做焦点环不合格。
+primaryColor = "#16283C"
+baseRadius = "small"
+buttonRadius = "small"
+showSidebarBorder = true
+# 字号：底 15px 比默认的 16px 紧一档，适合读数密集的页面；
+# 标题按 h1–h6 各降一档，默认的 h1 2.75rem 在宽版式里过响。
+baseFontSize = 15
+headingFontSizes = ["2rem", "1.5rem", "1.25rem", "1.1rem", "1rem", "0.95rem"]
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+# 字体栈不拉 Google Fonts：Inter 装了就用，没装回落 Helvetica Neue，
+# 中文回落 PingFang SC，不引入第三方请求，云端构建也不受影响。
+font = '"Inter", "Helvetica Neue", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif'
+headingFont = '"Inter", "Helvetica Neue", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif'
+# 图表色＝lib/theme.py 的 SERIES_LIGHT 与 BLUE_RAMP。原生图表（st.line_chart 等）
+# 走这两个键，Altair 图走 lib/theme.py 注册的主题，两者同色。
+# 连续色阶**必须正好十个**，多一个少一个 Streamlit 会整组弃用。
+chartCategoricalColors = [
+  "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
+  "#e87ba4", "#008300", "#4a3aa7", "#e34948",
+]
+chartSequentialColors = [
+  "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec",
+  "#3987e5", "#2a78d6", "#256abf", "#184f95", "#0d366b",
+]
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = "full"
+# 关掉右上角的 Deploy 按钮与开发者菜单。这是原生开关，不用 CSS 去藏元素。
+# 交付物是内部只读看板，既不该让读者误点「部署」，也不需要开发者菜单。
+toolbarMode = "minimal"

@@ -67,6 +67,8 @@ results/     风险计量结果（VaR/回测/分段，阶段二起）
 code/        数据获取 / 清洗 / 建模代码
 tools/       开发期校验脚本（不进生产链路；ast_guard.py 用于证明批量改写注释未动可执行代码）
 figures/     可视化图表
+dashboard/   交互看板（只读 results/ factors/ clean_data/，不重算、不回写）
+.streamlit/  看板的 Streamlit 配置（放在仓库根，见 dashboard/README.md）
 docs/        数据说明文档与研究文档
 ```
 
@@ -192,6 +194,30 @@ python code/stress_scenarios.py && python code/stress_impact.py && python code/s
 
 环境搭建、脚本职责表、图 ← 脚本 ← 数据三列对应、硬断言语义与已知边界见
 [工具使用说明](docs/tool_usage.md)。
+
+## 交互看板（`dashboard/`）
+
+`figures/` 下 22 张 PNG 是测算脚本跑到该行顺手画出来的，参数写死在绘图代码里，
+一张图只有一个视角。看板补上这一层：**不重算任何数字**，只把已经落库的
+26 张 `results/*.csv`、8 张 `factors/*.csv`、13 张 `clean_data/*.csv` 与事件库
+切成可探索的切片，让每张静态图都能换口径、换窗口、换档位并悬停读数。
+
+```bash
+pip install -r requirements.txt          # 已含 -r requirements-dashboard.txt
+.venv/bin/streamlit run dashboard/app.py # 规范启动命令：必须在仓库根执行
+```
+
+七个页面按问题组织：概览与业务结论 / 数据与因子概览 / VaR 模型对比与回测 /
+模型诊断与验证 / 压力测试交互分析 / 稳健性检验与数据质量 / 结论分级与已知边界。
+每页顶部一行筛选器统辖全页，页内不再套第二层筛选；每张图配一个**数据抽屉**
+（折叠块标题写明这张表是什么，与图读同一份切片）。
+外观走 Streamlit 原生主题——全部颜色、圆角、边线与字体落在
+`.streamlit/config.toml`，代码里不注入任何 CSS。
+
+看板**只读**：只 `read_csv`，不向 `results/` 或 `figures/` 写任何东西，
+也不改动 `code/` 下的 26 个生产脚本与 `figures/` 下的 PNG。
+运行方式、部署到 Streamlit Community Cloud 的步骤、每页读哪些列见
+[看板说明](dashboard/README.md)。
 
 脚本内置多处**硬断言**，任一不满足即报错终止：
 

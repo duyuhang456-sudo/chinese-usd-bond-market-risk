@@ -1,0 +1,12 @@
+# 交互看板（dashboard/）的额外依赖。计量链路的依赖仍在 requirements.txt，两边分开列。
+# 单独装：.venv/bin/pip install -r requirements-dashboard.txt
+#
+# 唯一的直接依赖是 streamlit，altair / pyarrow / pydeck / GitPython / Jinja2 等
+# 都由它按自己的上限带进来，不在这里重复 pin，避免两处版本各说各话。
+#
+# 与 requirements.txt 的唯一冲突点：streamlit 1.50 声明 packaging<26,>=20，
+# 而冻结的计量环境里 packaging 是 26.3，两者不能同时满足（pip 会直接报
+# ResolutionImpossible）。因此 requirements.txt 里 packaging 一行已改钉 25.0——
+# 这是为了让「一次 pip install -r requirements.txt」能装通而做的唯一一处改动，
+# 25.0 是 streamlit 允许区间内的最高版本，对本项目全部计量脚本无影响。
+streamlit==1.50.0
