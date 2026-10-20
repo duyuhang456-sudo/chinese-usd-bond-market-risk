@@ -43,14 +43,12 @@ PROFILE = "/tmp/chrome-cdp-profile"
 VIEW_W, VIEW_H = 1600, 1000          # 视口宽 / 首屏高
 MAX_PAGE_H = 16000                   # 全页截图的高度上限，超了 Chrome 会截不动
 
-# 页高护栏（屏数）。这是**回归护栏，不是版式目标**——写它是因为重建前这几页
-# 长到 4～6 屏，读者要滚个没完。4.0 这个值是量出来的，不是拍的：
-# 重建后七页实测 1.5 / 3.2 / 3.9 / 3.2 / 2.5 / 3.2 / 1.5 屏，
-# 最高的 var_backtest 是 3.9（8 张图 + 8 张读数卡）。
-# 再往下压已经没有合规手段了：页高等于「每行取两卡较高者」之和，而较高那一侧
-# 主要是图（8～13 张、每张 240～280px，图高定死）与读数卡，题注和抽屉外壳
-# 已经压到每卡 0～1 条。要进 2 屏只能删图或删读数，那是删内容，不是压缩。
-MAX_SCREENS = 4.0
+# 页高护栏（屏数）。看板已经改成单页长文档，一根长页的总屏数没有参考价值
+# ——整页 20 屏是形态本身决定的，压不下去也不该压。真正要拦的是「哪一段太长」：
+# 某一段塞了十几张图、读者滚一屏半还没到下一段，那就该拆卡而不是继续堆。
+# 所以下面这个数按主题块量，逐块判；整页只留一个「渲染没塌」的下限。
+MAX_SECTION_SCREENS = 6.0
+MIN_PAGE_SCREENS = 1.0
 
 
 # ---------------------------------------------------------------- HTTP 侧
@@ -268,9 +266,17 @@ AUDIT_JS = r"""(() => {
                     return e && e.getBoundingClientRect().height > 0; });
 
   const ex = document.querySelector('[data-testid="stException"]');
+  // 单页长文档：六个主题块靠 st.title 分界，量出每块的起止位置，
+  // 页高护栏就从「整页几屏」改成「哪一段几屏」。
+  const heads = [...document.querySelectorAll('[data-testid="stHeading"] h1')]
+    .map(e => ({t: (e.innerText || '').trim().slice(0, 24),
+                top: Math.round(e.getBoundingClientRect().top +
+                                window.scrollY)}))
+    .filter(h => h.top > 0);
   return JSON.stringify({
     h: main ? main.scrollHeight : 0,
     charts,
+    heads,
     metrics: [...document.querySelectorAll('[data-testid="stMetric"]')].map(box),
     chrome,
     err: ex ? ex.innerText.slice(0, 300) : null,
@@ -310,12 +316,27 @@ def audit_page(ws, url: str, outdir: str, shots: bool, full: bool = False) -> bo
                         "（分面图要用 charts.facet_width 定宽并关掉 use_container_width）")
     if d.get("chrome"):
         problems.append(f"Streamlit 外壳还露着：{d['chrome']}")
-    if screens > MAX_SCREENS:
-        problems.append(f"页面 {screens:.1f} 屏，超过 {MAX_SCREENS:.1f} 屏的护栏")
+
+    # 护栏：按主题块量，而不是整页。st.title 的纵向位置是块与块的分界。
+    heads = sorted(d.get("heads", []), key=lambda x: x["top"])
+    bounds = heads + [{"t": "页尾", "top": h}]
+    fat = []
+    for a, b in zip(bounds, bounds[1:]):
+        sec = (b["top"] - a["top"]) / VIEW_H
+        if sec > MAX_SECTION_SCREENS:
+            fat.append(f"{a['t']} {sec:.1f} 屏")
+    if screens < MIN_PAGE_SCREENS:
+        problems.append(f"页面只有 {screens:.1f} 屏，多半是没渲染出来")
+    if fat:
+        problems.append(f"这些段超过 {MAX_SECTION_SCREENS:.1f} 屏的护栏："
+                        + "、".join(fat))
 
     metrics = d.get("metrics", [])
     print(f"[{'OK  ' if not problems else 'FAIL'}] {slug:26s} "
-          f"{screens:4.1f} 屏（{h}px）  图 {len(shown)} 张"
+          f"整页 {screens:4.1f} 屏（{h}px）  "
+          + ("屏 ".join(f"{a['t']} {((b['top'] - a['top']) / VIEW_H):.1f}"
+                        for a, b in zip(bounds, bounds[1:])) + "  " if heads else "")
+          + f"图 {len(shown)} 张"
           + (f" +{hidden} 张藏在 tab/抽屉里" if hidden else "")
           + (f"  读数卡 {len(metrics)} 张" if metrics else ""))
     if shots:
@@ -345,15 +366,9 @@ def main() -> int:
         ws.call("Runtime.enable")
 
         if not urls:
-            ws.call("Emulation.setDeviceMetricsOverride", width=VIEW_W, height=VIEW_H,
-                    deviceScaleFactor=1, mobile=False)
-            ws.call("Page.navigate", url="http://localhost:8501")
-            wait_ready(ws)
-            links = ws.js("""(() => JSON.stringify(
-              [...document.querySelectorAll('[data-testid="stSidebarNav"] a, '
-                + '[data-testid="stSidebarNavLink"]')]
-                .map(x => x.getAttribute('href'))))()""")
-            urls = json.loads(links) if links else ["http://localhost:8501"]
+            # 看板已经是一张单页长文档：st.navigation 与侧栏目录都下线了，
+            # 只有一个 URL 可审。传 URL 参数进来时仍可单独审某个地址。
+            urls = ["http://localhost:8501"]
 
         for url in urls:
             if not audit_page(ws, url, outdir, shots, full=full):

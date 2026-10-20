@@ -1,18 +1,12 @@
 """设计令牌与 Altair 主题。
 
-令牌取自**结项汇报那套视觉语言**（`中资投资级美元债券…结项汇报`），
-这样两份交付物是同一个人的东西：内容页米白 `#F7F5F0`、标题深蓝 `#16283C`、
-正文 `#465667`、次要 `#667484`、金色 `#C9A66B` 作强调与卡片左竖条。
+视觉语言＝**清爽的学术版式**：纸白底、墨黑字、西文衬线 / 中文宋体、发丝横线、
+小圆角、干净透亮的数据色（蓝、红、金黄、青绿、橙、紫、绿、粉）。图也是论文图
+的规矩：细实线、浅灰网格、柱端微圆、选中点才用重色。
 
-深色档不是把浅色反转，而是直接用那份汇报稿的**另一种页面**——封面与章节页的深蓝
-`#101F30`。两种版式你都已经定过，看板的两套主题就落在它们上面。
-
-金色有两种用法，分开取色有对比度依据：装饰性竖条与衬底用 `#C9A66B`（不承载信息），
-需要读的字用金字 `#8C6832`（对米白约 5.3:1）。`#C9A66B` 直接当文字色只有约 2:1，不合格。
-
-分类色仍按 dataviz 校验过的固定顺序取用、不循环。底色从 `#fcfcfb` 换成 `#F7F5F0`、
-深色底从 `#1a1a19` 换成 `#101F30` 之后**必须重算**——用 `tools/check_palette.py`，
-不靠眼睛。
+状态色是保留色，只用于状态（推荐 / 淘汰、告警），且永远配文字标签，不参与
+分类序列。分类色板过 dataviz 五项可计算检查（明度带、彩度、色觉分离、常视觉
+下限、对比度，见 tools/check_palette.py）；换底色或换色板必须重算，不靠眼睛。
 """
 
 from __future__ import annotations
@@ -20,80 +14,91 @@ from __future__ import annotations
 import altair as alt
 
 # --- 分类色：固定顺序，永不循环 -------------------------------------------
-SERIES_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
-                "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
-SERIES_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500",
-               "#d55181", "#008300", "#9085e9", "#e66767"]
+# 槽位有语义：[0] 蓝＝选中/当前试算/基准，[1] 红＝对照损失/加缓冲后；顺序不是
+# 随意排的——tools/check_palette.py 对相邻配对做色觉模拟（Machado 2009），
+# 蓝-红-金黄-青绿-橙-紫-绿-粉这个次序在浅/深两底色上最差相邻 ΔE 都过线。
+SERIES_LIGHT = ["#3B7DBF", "#D94E4E", "#B58E00", "#09A095",
+                "#D87718", "#8466C9", "#59A14F", "#D47095"]
+SERIES_DARK = ["#4784C2", "#CA5553", "#B18F2C", "#039E93",
+               "#C57127", "#8C77C4", "#599C4F", "#CA7392"]
 
 # --- 状态色：保留色，只用于状态，且永远配图标或文字 -------------------------
-# 分模式给，因为同一组色标对两种底色不可能同时达标：参考档的
-# warning #fab219 对米白只有 1.68:1，做色块几乎看不见；而它对自己那套深底有 9.08:1。
-# 浅色档的 warning / serious 因此各深一档（3.70:1 / 3.35:1），色相家族不变，
-# 严重度仍读成绿→琥珀→橙→红。四个状态色彼此是**有序**的严重度阶梯，
-# 不用分类色那套「相邻 ΔE ≥ 15」去要求它——参考档自己的 warning↔serious 也只有 13.6。
-STATUS_LIGHT = {"good": "#0ca30c", "warning": "#a87500",
-                "serious": "#dd5f2c", "critical": "#d03b3b"}
-STATUS_DARK = {"good": "#0ca30c", "warning": "#fab219",
-               "serious": "#ec835a", "critical": "#d03b3b"}
+# 分模式给，因为同一组色标对两种底色不可能同时达标。四个状态色彼此是**有序**
+# 的严重度阶梯，不用分类色那套「相邻 ΔE ≥ 15」去要求它。good 取深一档绿，
+# 「推荐」两个字直接印在纸白上也要过 4.5:1。
+STATUS_LIGHT = {"good": "#177A35", "warning": "#A87500",
+                "serious": "#DD5F2C", "critical": "#D03B3B"}
+STATUS_DARK = {"good": "#3FAE5C", "warning": "#FAB219",
+               "serious": "#EC835A", "critical": "#E06060"}
 
-# --- 蓝色单色阶（连续量级用：热图、分量深浅） ------------------------------
-BLUE_RAMP = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7",
-             "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281",
-             "#0d366b"]
+# --- 蓝色单色阶（连续量级用：热图、分量深浅），hue 与板蓝一致 ---------------
+BLUE_RAMP = ["#e9eff5", "#dae3ec", "#c7d4e2", "#a5c3e3", "#8aadd2", "#6e96c0",
+             "#507dac", "#36679a", "#1a5388", "#004178", "#00336c", "#002560",
+             "#001754"]
 # 离散有序档（分档着色）与连续色阶的要求不一样：连续色阶本来就跨明度、浅端贴着底色，
 # 而离散档的每一步都要与相邻步看得出区别、且离底色最近的那一端仍须达到 2:1。
-# 13 阶原样用会达不到（相邻 ΔL 约 0.047，低于 0.06），所以隔步取值、并把贴底色的一端裁掉。
+# 深色档不能拿浅色阶直接用：热图低端会变成一片近白，压过整页深蓝。
+# 深色阶从贴着底色的深靛走到亮蓝，量级越大越亮，与浅色档的方向相反。
+# 低端不能贴着卡片底色：热图里 0 损失是一大片格子，压在 #101A2C 的卡片上会
+# 整块消失，读者分不出「值为 0」和「没有数据」。最低一档取离卡片 1.6:1 的深靛。
+BLUE_RAMP_DARK = ["#233F63", "#28476D", "#2D4F77", "#335881", "#3A628C",
+                  "#416C97", "#4A78A3", "#5585B0", "#6393BD", "#74A2CA",
+                  "#87B2D6", "#9CC2E3", "#B4D9F8"]
+
 BLUE_RAMP_ORDINAL = {
     "light": [BLUE_RAMP[i] for i in (4, 6, 8, 10, 12)],
-    "dark": [BLUE_RAMP[i] for i in (0, 2, 4, 6, 8, 10)],
+    # 最暗一档必须离底色 >= 2:1，否则第一档直接看不见；所以从第 6 步起步。
+    "dark": [BLUE_RAMP_DARK[i] for i in (2, 4, 6, 8, 10)],
 }
 
-# 发散色对：冷暖两极 + 暖灰中点（中点跟着页面底色走，不再用冷灰）
-DIVERGING = {"low": "#2a78d6", "mid_light": "#EFEAE0", "mid_dark": "#22334A",
-             "high": "#d03b3b"}
+# 发散色对：板蓝 / 板红两极 + 暖灰中点（中点跟着页面底色走）
+DIVERGING = {"low": "#3B7DBF", "mid_light": "#EFEDE6", "mid_dark": "#2C2B28",
+             "high": "#D94E4E"}
 
-# Inter 装了就用，没装回落 Helvetica Neue；中文回落 PingFang SC。
+# 衬线栈：西文 Source Serif/Charter/Georgia，中文宋体。本机/云端有哪支用哪支，
 # 不拉 Google Fonts：不引入第三方请求，云端构建也不受影响。
-FONT_STACK = ('"Inter", "Helvetica Neue", system-ui, -apple-system, '
-              '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif')
+FONT_STACK = ('"Source Serif 4", "Source Serif Pro", "Charter", "Iowan Old Style", '
+              'Georgia, "Times New Roman", "Songti SC", "STSong", "SimSun", serif')
 
 _TOKENS = {
     "light": {
         # 底与面
-        "page": "#F7F5F0",        # 内容页米白（= config.toml 的 backgroundColor）
-        "surface": "#F7F5F0",     # 卡片/图底色＝同页面米白，一片纸色、只靠边框区隔
+        "page": "#FCFBF8",        # 纸白（= config.toml 的 backgroundColor）
+        "surface": "#FCFBF8",     # 卡片/图底色＝同纸色，一片纸、只靠发丝线分节
         # 文字：由强到弱
-        "ink": "#16283C",         # 标题
-        "ink2": "#465667",        # 正文
-        "muted": "#667484",       # 次要（轴标签、说明）
-        "faint": "#8A97A5",       # 页脚级（只用在深蓝章节带上，米白底上不够）
+        "ink": "#1C1B17",         # 标题（墨黑）
+        "ink2": "#2B2A24",        # 正文与读数数字
+        "muted": "#6F6A5E",       # 次要（轴标签、说明）
+        "faint": "#A09A8C",       # 页脚级
         # 线与边
-        "grid": "#E7E1D6",
-        "axis": "#C9C2B4",
-        "border": "#E3DDD1",
-        # 强调
-        "accent": "#C9A66B",      # 金色，仅装饰（竖条、衬底）
-        "accent_ink": "#8C6832",  # 金字，可读
-        "navy": "#101F30",        # 章节带底色
-        "highlight": "#FFF0B3",   # 荧光笔衬底
-        "highlight_ink": "#16283C",
+        "grid": "#E9E6DE",
+        "axis": "#C4BFB3",
+        "border": "#DBD7CC",
+        # 强调：蓝色家族，不再用金
+        "accent": "#2F6DB0",
+        "accent_ink": "#2F6DB0",
+        "navy": "#16233D",        # 深藏青（备用）
+        "highlight": "#E4EDF6",   # 浅蓝荧光笔衬底
+        "highlight_ink": "#1C1B17",
         "series": SERIES_LIGHT,
     },
     "dark": {
-        "page": "#101F30",
-        "surface": "#16283C",
-        "ink": "#F7F5F0",
-        "ink2": "#C4CFD9",
-        "muted": "#8A97A5",
-        "faint": "#8A97A5",
-        "grid": "#22334A",
-        "axis": "#33455C",
-        "border": "#2A3B52",
-        "accent": "#C9A66B",
-        "accent_ink": "#DCC08A",
-        "navy": "#0A1520",
-        "highlight": "#4A3F1C",
-        "highlight_ink": "#FFF0B3",
+        # 暗色档＝深夜纸：深海军蓝底、冷白字。底色定在靛蓝一侧而不是中性炭黑，
+        # 数据色（蓝红金黄青绿）贴上去才有学院蓝本的观感。
+        "page": "#0A1120",
+        "surface": "#101A2C",     # 卡片与图底，比页底亮一档
+        "ink": "#EDF1F9",         # 标题
+        "ink2": "#D6DEEB",        # 正文与读数数字
+        "muted": "#94A2BA",       # 轴标签、说明
+        "faint": "#6B7891",       # 页脚级
+        "grid": "#1B2740",
+        "axis": "#2E3D58",
+        "border": "#22314C",
+        "accent": "#5B9AE0",
+        "accent_ink": "#8FB9EA",
+        "navy": "#060B15",
+        "highlight": "#16233A",
+        "highlight_ink": "#BFD6F0",
         "series": SERIES_DARK,
     },
 }
@@ -110,13 +115,18 @@ def base_mode() -> str:
     try:
         import streamlit as st
 
+        # 配置里钉死的那一档优先：这套看板是**深色专用**的，读者浏览器的
+        # 系统主题不该把图表翻成浅色（页面底是深蓝、图底是浅纸，会分裂成两层）。
+        pinned = st.get_option("theme.base")
+        if pinned in ("light", "dark"):
+            return pinned
         th = getattr(st.context, "theme", None)
         t = getattr(th, "type", None)
         if t in ("light", "dark"):
             return t
-        return "dark" if st.get_option("theme.base") == "dark" else "light"
-    except Exception:
         return "light"
+    except Exception:
+        return "dark"
 
 
 def tokens(mode: str | None = None) -> dict:
@@ -127,7 +137,7 @@ def tokens(mode: str | None = None) -> dict:
     t["status"] = STATUS_LIGHT if mode == "light" else STATUS_DARK
     t["font"] = FONT_STACK
     t["diverging"] = DIVERGING
-    t["blue_ramp"] = BLUE_RAMP
+    t["blue_ramp"] = BLUE_RAMP if mode == "light" else BLUE_RAMP_DARK
     t["blue_ramp_ordinal"] = BLUE_RAMP_ORDINAL[mode]
     return t
 
@@ -143,10 +153,10 @@ def series_color(i: int, mode: str | None = None) -> str:
 
 
 def _theme_config(mode: str) -> dict:
-    t = _TOKENS[mode]
+    t = tokens(mode)   # 走 tokens() 才拿得到 blue_ramp 这类按档派生的键
     return {
-        # 图落在卡片里，图底色取 surface：浅色=同页面米白（整页一片纸色），
-        # 深色=浅一档深蓝，图与卡片同色边界自然。
+        # 图落在卡片里，图底色取 surface：浅色=同纸色，深色=浅一档暖炭，
+        # 图与卡片同色边界自然。
         "background": t["surface"],
         "font": FONT_STACK,
         "config": {
@@ -154,15 +164,21 @@ def _theme_config(mode: str) -> dict:
             "padding": {"top": 8, "bottom": 6, "left": 4, "right": 12},
             "axis": {
                 "domainColor": t["axis"],
+                "domainWidth": 1,
                 "tickColor": t["axis"],
+                "tickWidth": 1,
+                "tickSize": 4,
                 "gridColor": t["grid"],
-                "gridDash": [],           # 网格恒为实线发丝；虚线只留给真阈值线
+                "gridDash": [],           # 网格恒为细实线；虚线只留给真阈值线
                 "gridWidth": 1,
                 "labelColor": t["muted"],
                 "titleColor": t["ink2"],
                 "labelFont": FONT_STACK,
                 "titleFont": FONT_STACK,
                 "labelFontSize": 11,
+                # 不截断轴标签。两栏之后每张图只有约 700px，Vega 默认按 180px
+                # 砍字，模型名与因子名会变成「FHS-E 滤波历史…」，读者认不出是哪条。
+                "labelLimit": 0,
                 "titleFontSize": 12,
                 "titleFontWeight": "normal",
             },
@@ -180,7 +196,7 @@ def _theme_config(mode: str) -> dict:
                 "color": t["ink"],
                 "font": FONT_STACK,
                 "fontSize": 13,
-                "fontWeight": "normal",
+                "fontWeight": 600,
                 "anchor": "start",
                 "offset": 8,
             },
@@ -191,6 +207,7 @@ def _theme_config(mode: str) -> dict:
                 "labelFont": FONT_STACK,
                 "titleFont": FONT_STACK,
                 "labelFontSize": 11,
+                "labelLimit": 0,
                 "titleFontSize": 12,
                 "titleFontWeight": "normal",
                 "labelPadding": 4,
@@ -200,13 +217,14 @@ def _theme_config(mode: str) -> dict:
             "range": {
                 "category": list(t["series"]),
                 "ordinal": list(BLUE_RAMP_ORDINAL[mode]),
-                "ramp": list(BLUE_RAMP),
-                "heatmap": list(BLUE_RAMP),
+                "ramp": list(t["blue_ramp"]),
+                "heatmap": list(t["blue_ramp"]),
             },
-            "line": {"strokeWidth": 2},
-            "point": {"size": 70, "filled": True, "stroke": t["surface"], "strokeWidth": 2},
-            "bar": {"cornerRadiusEnd": 4},
-            "area": {"opacity": 0.10, "line": {"strokeWidth": 2}},
+            # 论文图：细线条、柱端微圆、浅色晕。
+            "line": {"strokeWidth": 1.8},
+            "point": {"size": 60, "filled": True, "stroke": t["surface"], "strokeWidth": 1.5},
+            "bar": {"cornerRadiusEnd": 3},
+            "area": {"opacity": 0.09, "line": {"strokeWidth": 1.8}},
             "text": {"font": FONT_STACK},
         },
     }

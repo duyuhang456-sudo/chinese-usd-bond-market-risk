@@ -283,6 +283,12 @@ def main() -> int:
 
     tok = _load_tokens()
     cfg = _config_surfaces()
+    # 页面钉的是哪一档，config 对账就比哪一档——两档都要分别过自己的五项检查，
+    # 但「config.toml 与令牌一致」只有一条，读者看到的那一档才算数。
+    active = re.search(r'^\s*base\s*=\s*"(light|dark)"', 
+                       (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"),
+                       re.M)
+    active = active.group(1) if active else "light"
     failures: list[str] = []
 
     def show(title: str, report: list[tuple], ok: bool) -> None:
@@ -331,29 +337,29 @@ def main() -> int:
     if "borderColor" in cfg:
         pairs.append(("borderColor", "border"))
     for cfg_key, tok_key in pairs:
-        a, b = cfg.get(cfg_key), tok["light"].get(tok_key)
+        a, b = cfg.get(cfg_key), tok[active].get(tok_key)
         same = (a or "").lower() == (b or "").lower()
         print(f"  [{'PASS' if same else 'FAIL':4}] {cfg_key:<26} "
-              f"{a} vs tokens['{tok_key}'] {b}")
+              f"{a} vs tokens['{active}']['{tok_key}'] {b}")
         if not same:
             failures.append(f"config.{cfg_key} 与令牌不一致")
 
     # 两个图表色数组：原生图表与 Altair 图必须同色
     chart = _config_chart_colors()
     cat = chart.get("chartCategoricalColors")
-    want_cat = [c.lower() for c in tok["series_light"]]
+    want_cat = [c.lower() for c in tok[f"series_{active}"]]
     if cat is None:
         print("  [FAIL] chartCategoricalColors      缺失——原生图表会退回 Streamlit 默认色")
         failures.append("config.chartCategoricalColors 缺失")
     else:
         same = cat == want_cat
         print(f"  [{'PASS' if same else 'FAIL':4}] chartCategoricalColors      "
-              f"{len(cat)} 槽 vs SERIES_LIGHT {len(want_cat)} 槽")
+              f"{len(cat)} 槽 vs SERIES_{active.upper()} {len(want_cat)} 槽")
         if not same:
-            failures.append("config.chartCategoricalColors 与 SERIES_LIGHT 不一致")
+            failures.append("config.chartCategoricalColors 与当前档 SERIES 不一致")
 
     seq = chart.get("chartSequentialColors")
-    ramp = [c.lower() for c in tok["ramp"]]
+    ramp = [c.lower() for c in tok["light" if active == "light" else "dark"]["blue_ramp"]]
     if seq is None:
         print("  [FAIL] chartSequentialColors       缺失")
         failures.append("config.chartSequentialColors 缺失")

@@ -9,43 +9,47 @@
 # user explicitly asks for it」）：原生主题跨元素一致，且不会随 Streamlit 内部
 # class 名变化而失效。
 #
-# 配色与 dashboard/lib/theme.py 的令牌必须一致——图表外观由那边的 Altair 主题负责，
-# 这里的两个 chart*Colors 是同一套色给原生图表用。两处对不上，页面与图会分裂成
-# 两套观感。tools/check_palette.py 会拿这份文件与令牌对账，改一处就得改另一处。
+# 视觉语言＝清爽的学术版式：纸白底、墨黑衬线（西文 serif / 中文宋体）、发丝横线、
+# 小圆角、干净透亮的蓝红绿数据色。配色与 dashboard/lib/theme.py 的令牌必须一致——
+# 图表外观由那边的 Altair 主题负责，这里的两个 chart*Colors 是同一套色给原生图表用。
+# 两处对不上，页面与图会分裂成两套观感。tools/check_palette.py 会拿这份文件与
+# 令牌对账，改一处就得改另一处。
 
 [theme]
-# 浅色＝结项汇报的内容页：整页一片米白纸色，卡片靠边框区隔，不另起白底。
-base = "light"
-backgroundColor = "#F7F5F0"            # 内容页米白
-secondaryBackgroundColor = "#F7F5F0"   # 卡片背景＝页面米白，只靠边框分卡
-textColor = "#465667"                  # 正文
-linkColor = "#8C6832"                  # 金字，不用金 #C9A66B——那个当文字只有约 2:1
-borderColor = "#E3DDD1"
-dataframeHeaderBackgroundColor = "#EFEAE0"
-# 控件强调用深蓝而不是金色：金色对米白底约 2:1，做焦点环不合格。
-primaryColor = "#16283C"
-baseRadius = "small"
-buttonRadius = "small"
+# 深色＝深夜纸：深海军蓝底、冷白字。整套看板只出这一档——浏览器系统主题切到
+# 浅色时页面仍是深蓝，图表主题由 lib/theme.py 的 base_mode() 跟着钉死，不翻面。
+base = "dark"
+backgroundColor = "#0A1120"            # 深海蓝黑
+secondaryBackgroundColor = "#101A2C"   # 卡片与图底，比页底亮一档
+textColor = "#D6DEEB"                  # 冷白正文（不用纯白，长文不刺眼）
+linkColor = "#8FB9EA"                  # 提亮的学院蓝
+borderColor = "#22314C"                # 深蓝发丝线
+dataframeHeaderBackgroundColor = "#16233A"
+# 控件强调用同族板蓝的提亮版：主按钮、焦点环同一支色。
+primaryColor = "#4C8DD6"
+# 小圆角：卡片与按钮柔和分节，但不成药丸。
+baseRadius = "medium"
+buttonRadius = "medium"
 showSidebarBorder = true
 # 字号：底 15px 比默认的 16px 紧一档，适合读数密集的页面；
-# 标题按 h1–h6 各降一档，默认的 h1 2.75rem 在宽版式里过响。
+# 标题按 h1–h6 递减，期刊版式里标题不响，靠字重而不是字号分节。
 baseFontSize = 15
-headingFontSizes = ["2rem", "1.5rem", "1.25rem", "1.1rem", "1rem", "0.95rem"]
-headingFontWeights = [600, 600, 600, 600, 600, 600]
-# 字体栈不拉 Google Fonts：Inter 装了就用，没装回落 Helvetica Neue，
-# 中文回落 PingFang SC，不引入第三方请求，云端构建也不受影响。
-font = '"Inter", "Helvetica Neue", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif'
-headingFont = '"Inter", "Helvetica Neue", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif'
+headingFontSizes = ["1.8rem", "1.4rem", "1.18rem", "1.06rem", "0.98rem", "0.92rem"]
+headingFontWeights = [700, 600, 600, 600, 600, 600]
+# 衬线栈不拉 Google Fonts：本机/云端有哪支用哪支，中文回落宋体（Songti SC /
+# SimSun），不引入第三方请求。Georgia 与 Times 是 macOS/Windows 的保底。
+font = '"Source Serif 4", "Source Serif Pro", "Charter", "Iowan Old Style", Georgia, "Times New Roman", "Songti SC", "STSong", "SimSun", serif'
+headingFont = '"Source Serif 4", "Source Serif Pro", "Charter", "Iowan Old Style", Georgia, "Times New Roman", "Songti SC", "STSong", "SimSun", serif'
 # 图表色＝lib/theme.py 的 SERIES_LIGHT 与 BLUE_RAMP。原生图表（st.line_chart 等）
 # 走这两个键，Altair 图走 lib/theme.py 注册的主题，两者同色。
 # 连续色阶**必须正好十个**，多一个少一个 Streamlit 会整组弃用。
 chartCategoricalColors = [
-  "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
-  "#e87ba4", "#008300", "#4a3aa7", "#e34948",
+  "#4784c2", "#ca5553", "#b18f2c", "#039e93",
+  "#c57127", "#8c77c4", "#599c4f", "#ca7392",
 ]
 chartSequentialColors = [
-  "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec",
-  "#3987e5", "#2a78d6", "#256abf", "#184f95", "#0d366b",
+  "#28476d", "#2d4f77", "#335881", "#3a628c", "#4a78a3",
+  "#6393bd", "#74a2ca", "#87b2d6", "#9cc2e3", "#b4d9f8",
 ]
 
 [browser]

@@ -14,7 +14,7 @@ import altair as alt
 import numpy as np
 import pandas as pd
 
-from . import theme
+from . import export, theme
 
 MAX_BAR_PX = 24
 LINE_PX = 2
@@ -22,25 +22,43 @@ MARKER_PX = 70          # 面积约 8–9px 直径
 GAP_PX = 2
 SURFACE_RING = 2
 
-# 两栏布局里一栏的内容宽。按 1280 视口取（此时一栏约 470），宽屏自然留余量。
-CARD_W = 470
-
-
-def facet_width(columns: int, *, card_w: int = CARD_W, chrome: int = 40) -> int:
-    """分面图每格的宽度——**分面图不能配 `use_container_width`**。
-
-    对分面的 Vega-Lite spec，顶层的 `width` 是「每一格」的宽度，而 Streamlit 会把
-    它撑成整个容器的宽度，于是 k 格的图画出 k 倍宽，从卡片里溢出去盖住右边那一栏。
-    实测溢出 86～1579px，而且 Python 侧一声不响，只有渲染出来才看得见。
-
-    所以每格宽度必须定死，并且 `st.altair_chart(..., use_container_width=False)`，
-    交给内容定宽。chrome 是每格 y 轴刻度与留白的经验值。
-    """
-    return max(48, card_w // columns - chrome)
+# 全页只用单视图，不写 `facet()`。分面 spec 的顶层 width 是「每一格」的宽度，
+# Streamlit 会按格数把它翻倍成整张图的宽，于是 k 格撑出 k 倍、压出卡片边框；
+# 想不出框只能把宽度定死，而定死的宽度换个视口就失效——1280 下 1400 的图必溢。
+# 多面板一律拆成若干张单图，用 `st.columns()` 排，每张 `use_container_width=True`，
+# 宽度就永远跟着卡片走。实测 1280 / 1440 / 1600 三档视口零出框。
 
 
 def _tok() -> dict:
     return theme.tokens()
+
+
+# --------------------------------------------------------------- 交互原语
+
+
+def zoom_x():
+    """绑到 x 轴尺度的区间选择：拖动平移、滚轮缩放、双击空白复位。
+
+    只绑 x——金融时序的 y 轴不能跟着视图缩放变，否则同一张图前后观感里
+    波动幅度不可比（交互红线：坐标轴不能被交互扭曲）。
+    """
+    return alt.selection_interval(bind="scales", encodings=["x"])
+
+
+def zoom_xy():
+    """绑死两轴的区间选择，给散点用（xy 同为被观察量、无主从）。"""
+    return alt.selection_interval(bind="scales")
+
+
+def legend_filter(chart, field: str, *, dim: float = 0.2):
+    """图例点选隔离：点中某类只高亮它，其余降灰；再点复位。
+
+    只改 opacity、不换色。**只对数据层用**——先过本函数再叠阈值线/文字层，
+    否则没有该字段的参照层也会被判定为「未选中」一起变暗。
+    """
+    sel = alt.selection_point(fields=[field], bind="legend")
+    return chart.add_params(sel).encode(
+        opacity=alt.condition(sel, alt.value(1), alt.value(dim)))
 
 
 def _color_scale(field: str, title: str, domain: list | None) -> alt.Color:
@@ -65,28 +83,49 @@ def line_crosshair(
     height: int = 320,
     color_domain: list | None = None,
     zero: bool = False,
+    zoom: bool = True,
+    legend_select: bool = False,
 ) -> alt.Chart:
-    """折线 + 竖直准星。一个 tooltip 列出该 X 上的所有序列，不必对准某条线。"""
+    """折线 + 竖直准星。一个 tooltip 列出该 X 上的所有序列，不必对准某条线。
+
+    zoom：绑 x 轴的拖动平移/滚轮缩放（双击复位），时序图默认开。
+    legend_select：多序列时图例可点选隔离，其余序列降灰。
+    """
     tok = _tok()
     x_enc = alt.X(f"{x}:T", title=x_title)
     y_enc = alt.Y(f"{y}:Q", title=y_title, scale=alt.Scale(zero=zero))
     base = alt.Chart(df).encode(x=x_enc, y=y_enc)
     cenc = {"color": _color_scale(color, color_title, color_domain)} if color else {}
 
-    line = base.mark_line(strokeWidth=LINE_PX).encode(**cenc)
-
     # 不可见的拾取层：读者瞄日期，不必瞄 2px 线
     nearest = alt.selection_point(nearest=True, on="pointerover", fields=[x], empty=False)
+    leg_sel = (
+        alt.selection_point(fields=[color], bind="legend")
+        if legend_select and color else None
+    )
 
+    line_enc = dict(cenc)
+    if leg_sel is not None:
+        line_enc["opacity"] = alt.condition(leg_sel, alt.value(1), alt.value(0.2))
+    line = base.mark_line(strokeWidth=LINE_PX).encode(**line_enc)
+
+    # 悬停点的显隐要同时受准星与图例选择约束。嵌套 alt.condition 会生成
+    # Opacity 不认的结构（schema 报错），改用条件数组：先近中且在图例内→1，
+    # 近中但被图例过滤→0.2，未近中→0。
+    if leg_sel is not None:
+        pts_opacity = {
+            "condition": [
+                {"test": {"and": [{"param": nearest.name},
+                                  {"param": leg_sel.name}]}, "value": 1},
+                {"test": {"param": nearest.name}, "value": 0.2}],
+            "value": 0}
+    else:
+        pts_opacity = alt.condition(nearest, alt.value(1), alt.value(0))
     ring = dict(size=MARKER_PX, filled=True, stroke=tok["surface"], strokeWidth=SURFACE_RING)
     if color:
-        pts = base.mark_point(**ring).encode(
-            **cenc, opacity=alt.condition(nearest, alt.value(1), alt.value(0))
-        )
+        pts = base.mark_point(**ring).encode(**cenc, opacity=pts_opacity)
     else:
-        pts = base.mark_point(**ring, color=tok["series"][0]).encode(
-            opacity=alt.condition(nearest, alt.value(1), alt.value(0))
-        )
+        pts = base.mark_point(**ring, color=tok["series"][0]).encode(opacity=pts_opacity)
 
     rule = (
         alt.Chart(df)
@@ -98,16 +137,28 @@ def line_crosshair(
     tips = tooltip or [alt.Tooltip(f"{x}:T", title="日期"),
                        alt.Tooltip(f"{y}:Q", title=y_title)]
     tt = base.mark_point(opacity=0).encode(tooltip=tips).transform_filter(nearest)
+    if leg_sel is not None:
+        tt = tt.transform_filter(leg_sel)
 
-    # nearest 必须挂在**返回出去的那个图**上。挂在一个不进返回值的中间图层上，
+    # 参数必须挂在**返回出去的那个图**上。挂在不进返回值的中间图层上，
     # Altair 会把 params 声明丢掉，只留下 condition 里对 param_1 的引用——
     # spec 校验不过，浏览器画一个空盒子，而 Python 侧一声不响（AppTest 查不出来）。
-    return (rule + line + pts + tt).add_params(nearest).properties(height=height)
+    params = [nearest]
+    if zoom:
+        params.append(zoom_x())
+    if leg_sel is not None:
+        params.append(leg_sel)
+    return (rule + line + pts + tt).add_params(*params).properties(height=height)
 
 
 def add_rule(chart: alt.Chart, value: float, *, label: str = "", color: str | None = None,
-             dashed: bool = True, orient: str = "horizontal") -> alt.Chart:
-    """真阈值线——虚线只用在真正的阈值上，网格线仍是实线。"""
+             dashed: bool = True, orient: str = "horizontal",
+             dy: int = -5) -> alt.Chart:
+    """真阈值线——虚线只用在真正的阈值上，网格线仍是实线。
+
+    两条线挨得很近时要手动错开文字（`dy` 一正一负）：文字默认锚在线的上方 5px，
+    审慎带那种 +10% 的伴生线在图上只隔十几像素，两行字会直接叠成一坨。
+    """
     tok = _tok()
     col = color or tok["status"]["critical"]
     dash = [4, 3] if dashed else []
@@ -117,7 +168,7 @@ def add_rule(chart: alt.Chart, value: float, *, label: str = "", color: str | No
         if not label:
             return chart + rule
         txt = alt.Chart(pd.DataFrame({"y": [value], "t": [label]})).mark_text(
-            align="left", dx=4, dy=-5, color=tok["ink2"], fontSize=10,
+            align="left", dx=4, dy=dy, color=tok["ink2"], fontSize=10,
             font=tok["font"]).encode(y="y:Q", text="t:N")
         return chart + rule + txt
     rule = alt.Chart(pd.DataFrame({"x": [value]})).mark_rule(
@@ -293,8 +344,9 @@ def scatter(
     color_title: str = "",
     shape_domain: list | None = None,
     size: int = 130,
+    zoom: bool = False,
 ) -> alt.Chart:
-    """散点。全对比形态，着色序列上限 3。"""
+    """散点。全对比形态，着色序列上限 3。zoom=True 时两轴可框选缩放。"""
     tok = _tok()
     enc = {
         "x": alt.X(f"{x}:Q", title=x_title),
@@ -310,6 +362,8 @@ def scatter(
     chart = alt.Chart(df).mark_point(
         size=size, filled=True, stroke=tok["surface"], strokeWidth=SURFACE_RING
     ).encode(**enc)
+    if zoom:
+        chart = chart.add_params(zoom_xy())
     return chart.properties(height=height)
 
 
@@ -368,9 +422,14 @@ def hist_with_normal(s: pd.Series, *, bins: int = 40, height: int = 200,
     norm = pd.DataFrame({"x": xs, "y": dens * len(clean) * width})
     bars = alt.Chart(hist).mark_bar().encode(
         x=alt.X("x0:Q", title=x_title, bin="binned"), x2="x1:Q",
-        y=alt.Y("n:Q", title=""))
+        y=alt.Y("n:Q", title=""),
+        tooltip=[alt.Tooltip("x0:Q", title="区间起", format=".4g"),
+                 alt.Tooltip("x1:Q", title="区间止", format=".4g"),
+                 alt.Tooltip("n:Q", title="样本数")])
     line = alt.Chart(norm).mark_line(strokeWidth=LINE_PX, color=tok["series"][1]).encode(
-        x=alt.X("x:Q"), y=alt.Y("y:Q"))
+        x=alt.X("x:Q"), y=alt.Y("y:Q"),
+        tooltip=[alt.Tooltip("x:Q", title="取值", format=".4g"),
+                 alt.Tooltip("y:Q", title="正态参考（折算计数）", format=".1f")])
     return (bars + line).properties(height=height, title=title)
 
 
@@ -438,3 +497,7 @@ def data_drawer(df: pd.DataFrame, *, key: str, title: str,
             st.caption(note)
         st.dataframe(show, width="stretch", height=height, key=key,
                      column_config=cfg or None)
+        # 原始数据可导出：导出的就是上面这张表（同列序），内存编码、不落盘
+        st.download_button(
+            "下载本表 CSV", export.csv_bytes(show),
+            file_name=f"{key}.csv", mime="text/csv", key=f"{key}_dl")

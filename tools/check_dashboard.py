@@ -5,9 +5,9 @@ AppTest 把每个页面文件跑一遍，断言没有抛异常、并抽查关键
 
 查的不只是「没报错」，还有这一版定下的几条硬约束：
 
-1. 页面集合与 `app.py` 的四阶段导航一致：命名页六页（1_overview、2_data_factors、
-   3_var_backtest、4_model_validation、5_stress、7_conclusions）+ 阶段拆出的
-   data_quality（阶段一）、robustness（阶段三）共八页，多一个少一个都算不过。
+1. 页面集合与 `app.py` 的单页装配一致：`pages/sections/` 下 0_cover、1_data_factor、
+   2_var_models、3_stress、4_robustness、5_verdict 共六段，顺序由 app.py 的
+   SECTIONS 列表给定；多一个少一个都算不过。
 2. **外观全部走 `.streamlit/config.toml`，页面源码不注入任何 HTML/CSS**——
    源码里出现 `unsafe_allow_html`、`jpm-` 自定义 class、或 `lib/style.py`
    复活，都在这里拦下。这是 Streamlit 官方设计规范的做法。
@@ -36,16 +36,15 @@ DASH = ROOT / "dashboard"
 
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
-# 七页的固定清单：文件名 → 侧栏/页内标题
+# 单页长文档·5 主题分组的固定清单：相对 dashboard/pages 的路径 → 标题
+# （子目录 sections/ 是允许的；上一轮的 5 步工作流全部下线，新骨架为单页可滚文档）
 PAGES = {
-    "1_overview.py": "概览与业务结论",
-    "2_data_factors.py": "数据与因子概览",
-    "3_var_backtest.py": "VaR 模型对比与回测",
-    "4_model_validation.py": "模型诊断与验证",
-    "5_stress.py": "压力测试交互分析",
-    "7_conclusions.py": "结论分级与已知边界",
-    "data_quality.py": "数据质量",
-    "robustness.py": "稳健性检验",
+    "sections/0_cover.py": "本页一览",
+    "sections/1_data_factor.py": "数据与因子概览",
+    "sections/2_var_models.py": "VaR 模型对比看板",
+    "sections/3_stress.py": "压力测试交互分析",
+    "sections/4_robustness.py": "稳健性检验探索",
+    "sections/5_verdict.py": "结论与边界",
 }
 
 # 源码里不该再出现的东西：既包括旧接口，也包括「用 HTML/CSS 补外观」这条路
@@ -100,11 +99,11 @@ def _texts(at: AppTest) -> str:
 
 
 def n_controls(at: AppTest) -> int:
-    """页内控制带的控件数。
+    """页内控件数。
 
-    控制带是这一版「让读者自己跑」的抓手，所以要真的数出来。`segmented_control`
-    落在 `button_group` 上而不是 radio——第 5、6 两页的控制带只有它，
-    早先漏了这一项，那两页会显示成「控件=0」，看不出控制带在不在。
+    主区是零控件的（口径/报价/模型/置信度/缓冲都收在 app.py 顶部那颗 popover 里），
+    所以这里数出来的正常值是 0；`segmented_control` 落在 `button_group` 上而不是
+    radio，只放它的那几页早先会显示成「控件=0」，看不出控件在不在，所以一并计入。
     """
     kinds = ("radio", "selectbox", "slider", "select_slider", "multiselect", "button_group")
     return sum(len(getattr(at, k)) for k in kinds)
@@ -146,7 +145,7 @@ def check_page(name: str, path: Path, seen_titles: set,
             problems.append("缺读数带（st.metric）")
         if "数据来源" not in _texts(at):
             problems.append("缺页脚（数据来源）")
-        # 「每张图配一个表格孪生」只对有图的页面成立：概览页没有图，也就没有抽屉
+        # 「每张图配一个表格孪生」只对有图的页面成立
         if charts and not drawers:
             problems.append("有图但没有数据抽屉")
         for ex in drawers:
@@ -171,7 +170,7 @@ def main() -> int:
         bad += 1
 
     page_dir = DASH / "pages"
-    found = {p.name for p in page_dir.glob("*.py")}
+    found = {str(p.relative_to(page_dir)) for p in page_dir.rglob("*.py")}
     expected = set(PAGES)
     if found != expected:
         for extra in sorted(found - expected):
@@ -197,7 +196,7 @@ def main() -> int:
     if bad:
         print(f"{bad} 项未通过。")
         return 1
-    print(f"四阶段导航的全部 {len(PAGES)} 个页面通过（实际 {len(found)} 个；"
+    print(f"单页长文档的全部 {len(PAGES)} 段通过（实际 {len(found)} 段；"
           f"数据抽屉标题互不重复，共 {len(seen_titles)} 个）。")
     return 0
 
