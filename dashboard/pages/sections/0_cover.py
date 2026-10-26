@@ -31,7 +31,7 @@ for _col, (_label, _value, _sub) in zip(_cols, [
     ("主口径判定线", "0.6659 %",
      "HS250 在 common773 / 主 / 99% 下的 1 日 ES。"),
     ("最严重情景倍数", "4.51 ×",
-     "H1 含缓冲净损失 3.1708% ÷ 0.6659%。"),
+     "S09 次口径损失 3.1708% ÷ 次口径判定线 0.7024%（纯汇率情景不加缓冲）。"),
 ]):
     with _col:
         page.tile_kpi(_label, _value, sub=_sub)
@@ -42,7 +42,7 @@ st.dataframe(
             ["校准违规率", "1.0349 %", "8 / 773 个交易日越限", "results/backtest_results.csv"],
             ["判定线（1 日 ES）", "0.6659 %", "压力倍数与缓冲占比的分母", "results/var_series_long.csv"],
             ["含缓冲占比", "50.5 %", "缓冲吃掉判定线的一半", "results/stress_buffer_sens.csv"],
-            ["H1 净损失", "3.1708 %", "30 个情景里最严重的一个", "results/stress_impact.csv"],
+            ["最严重情景", "3.1708 %", "S09 次口径损失，为判定线的 4.51 倍", "results/stress_impact.csv"],
             ["推荐模型", "HS250", "32 组里 8 组通过全部检验", "results/model_scorecard.csv"],
         ],
         columns=["锚点", "数值", "一句话读法", "出处"],
