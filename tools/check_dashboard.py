@@ -10,7 +10,10 @@ AppTest 把每个页面文件跑一遍，断言没有抛异常、并抽查关键
    SECTIONS 列表给定；多一个少一个都算不过。
 2. **外观全部走 `.streamlit/config.toml`，页面源码不注入任何 HTML/CSS**——
    源码里出现 `unsafe_allow_html`、`jpm-` 自定义 class、或 `lib/style.py`
-   复活，都在这里拦下。这是 Streamlit 官方设计规范的做法。
+   复活，都在这里拦下。这是 Streamlit 官方设计规范的做法。唯一例外是
+   `lib/toc.py`：右下角目录胶囊与回到顶部圆钮必须 `position: fixed` 才能钉在
+   视口上，Streamlit 没有原生组件能做，于是把 `st.html()` 收紧到该文件的唯一
+   一处调用（`_HTML_ALLOWED`），HTML 注入开关仍然全库禁用。
 3. 每页有原生页头（`st.title`）与读数带（`st.metric`），页脚写明数据来源。
 4. 每页至少一个数据抽屉，且**抽屉标题全库唯一**——此前 14 个折叠块全叫
    「表格视图」，读者展开前不知道里面是什么。
@@ -64,6 +67,32 @@ _FORBIDDEN_SRC = [
 _EMOJI = re.compile("[\U0001f000-\U0001faff☀-➿⬀-⯿️]")
 # 看板只读契约：页面源码里不该出现写产物目录的调用
 _WRITE = re.compile(r"(to_csv|savefig|\.write_text|open\([^)]*[\"']w)")
+
+# 悬浮件的唯一豁免：st.html() 只允许出现在 lib/toc.py，且只出现一次。
+# 其余源码里出现 st.html() 或者允许 HTML 注入的开关，仍然算不过。
+_HTML_ALLOWED = DASH / "lib" / "toc.py"
+_HTML_MAX_CALLS = 1
+
+
+def check_html_gate() -> list:
+    """全 dashboard/ 扫描 HTML 注入，返回问题清单。"""
+    problems = []
+    for path in sorted(DASH.rglob("*.py")):
+        src = path.read_text(encoding="utf-8")
+        rel = path.relative_to(ROOT)
+        if "unsafe_allow_html" in src:
+            problems.append(f"{rel} 出现 unsafe_allow_html：HTML 注入开关全库禁用")
+        calls = src.count("st.html(")
+        if not calls:
+            continue
+        if path != _HTML_ALLOWED:
+            problems.append(
+                f"{rel} 出现 st.html(...)：只允许放 "
+                f"{_HTML_ALLOWED.relative_to(ROOT)}")
+        elif calls > _HTML_MAX_CALLS:
+            problems.append(
+                f"{rel} 出现 {calls} 处 st.html(...)：悬浮件只该有一处")
+    return problems
 
 
 def _count(at: AppTest, kind: str) -> int:
@@ -167,6 +196,10 @@ def main() -> int:
     # 受控 CSS 那一层已经整个退役；文件复活说明有人在往回走
     if (DASH / "lib" / "style.py").exists():
         print("[FAIL] dashboard/lib/style.py 复活了——外观只走 .streamlit/config.toml")
+        bad += 1
+
+    for msg in check_html_gate():
+        print(f"[FAIL] {msg}")
         bad += 1
 
     page_dir = DASH / "pages"

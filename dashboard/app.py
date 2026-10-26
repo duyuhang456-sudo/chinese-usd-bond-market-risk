@@ -25,7 +25,7 @@ sys.path.insert(0, str(HERE))
 
 import streamlit as st  # noqa: E402
 
-from lib import page, pipe, theme  # noqa: E402
+from lib import page, pipe, theme, toc  # noqa: E402
 
 try:
     st.set_page_config(page_title=page.APP_TITLE,
@@ -54,6 +54,11 @@ def run_section(name: str) -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
+
+# 右下角的目录胶囊与回到顶部圆钮。放最前：两个控件是 position: fixed 的浮层，
+# 摆在流里的顺序不影响落点，但「回到顶部」要的那个零尺寸锚点必须真的在文档最前面
+# ——放到最后会落到页尾。
+toc.render()
 
 page.banner("风险计量与压力测试 · 交互看板", pipe.trial_meta())
 page.trial_chip()

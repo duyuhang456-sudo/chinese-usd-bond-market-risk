@@ -36,7 +36,15 @@ pip install -r requirements.txt            # 已含 -r requirements-dashboard.tx
 
 **看板不是一条工作流。** 取数、计量、检验、加压、判定五件事没有先后，读者从
 哪一段开始读都可以，读到一半改口径也不丢位置。整页是一根可以一直往下滚的长文档，
-没有侧栏目录，没有「下一步」按钮，没有 tab。
+没有「下一步」按钮，没有 tab。目录收在右下角的悬浮胶囊里，不占正文宽度，也不占页高。
+
+七个大段落各带一个 ASCII 锚点（`cover`、`data`、`var`、`stress`、`stress-appendix`、
+`robust`、`verdict`）。点开「目录」是这七条的结论地图：编号、标题、卡数和一句定位语；
+同一角落的 `↑` 回到页顶。两侧都是原生能力——`st.title(body, anchor=…)` 把锚点落到
+`<h1 id>`，目录里是 `<a href="#…">`，点击只改浏览器的滚动位置，不重跑脚本。
+Streamlit 自动生成的锚点只保留 `a-z0-9`，纯中文标题会被剥空、退化成哈希
+（`数据与因子概览` → `9608beea`），所以锚点一律显式写，表只有 `lib/toc.py` 一份，
+正文标题按标题名回查，不会两头各写一套。
 
 顶部只有一颗 `st.popover` 做的**试算 chip**，收起时主区零控件。点开是五个选择：
 汇率口径、报价方案、VaR 模型、置信度档、缓冲档位。它们不是「流程步骤」，是全页
@@ -84,6 +92,10 @@ pip install -r requirements.txt            # 已含 -r requirements-dashboard.tx
    一句话结论 + 行尾数据锚点，零绘图成本，同样两两并排。
 7. `page.footer(来源, 读取列)`——页脚写明这一段读的是哪几个 CSV 的哪几列。
 
+另有一个不在 `lib/page.py` 里的浮层：`toc.render()`（`lib/toc.py`）在右下角画目录胶囊
+与 `↑` 圆钮，是唯一走 `st.html` 的组件。它自己带一份锚点表（`SECTIONS`），
+`page.section_head()` 按标题回查取 anchor，所以七个段文件里一行锚点都不用写。
+
 全页状态在 `lib/pipe.py`：五个选择（`pipe_caliber` / `pipe_quote` / `pipe_model` /
 `pipe_conf` / `pipe_buffer`）全部带默认回落，单独用 AppTest 跑任一段也有数；
 `reset_to_baseline()` 供 chip 里的复位钮。
@@ -107,15 +119,23 @@ dashboard/
   lib/charts.py         可复用图元：折线准星、点+区间、堆叠份额、散点、热图、
                         结论标注、数据抽屉
   lib/page.py           版式骨架：running head、试算 chip、块头、读数 tile、图卡、页脚
+  lib/toc.py            右下角目录胶囊 + 回到顶部圆钮；全页 7 个锚点的唯一来源
   lib/labels.py         口径 / 符号 / 期限等标签文案，单一来源
 ```
 
-**代码里没有一行 CSS。** 外观全部落在 `.streamlit/config.toml` 的 `[theme]` 里，
-图表外观由 `lib/theme.py` 注册的 Altair 主题负责。这是 Streamlit 官方设计规范的路子
-（「Do not use custom CSS to polish an app unless the user explicitly asks for it」）：
-原生主题跨元素一致，也不会因为 Streamlit 换了内部 class 名就整块失效。
+**除 `lib/toc.py` 外，代码里没有一行 CSS。** 外观全部落在 `.streamlit/config.toml`
+的 `[theme]` 里，图表外观由 `lib/theme.py` 注册的 Altair 主题负责。这是 Streamlit
+官方设计规范的路子（「Do not use custom CSS to polish an app unless the user explicitly
+asks for it」）：原生主题跨元素一致，也不会因为 Streamlit 换了内部 class 名就整块失效。
 同理，右上角的 Deploy 按钮与开发者菜单是用 `[client] toolbarMode = "minimal"`
 这个原生开关关掉的，不是用 CSS 去藏元素。
+
+`lib/toc.py` 是唯一的破例，而且只为一个理由：悬浮件必须 `position: fixed` 才钉得住
+视口，Streamlit 没有任何原生组件能这么做。它的样式只作用在自己写出的 `.cnd-*`
+元素上，不碰 Streamlit 的内部 class 与 testid，升级改了内部结构也不会整块失效；
+注入走的是 `st.html`（不做 iframe，DOMPurify 白名单里有 `style` / `details` /
+`summary` / `nav`，不允许执行脚本），**`unsafe_allow_html` 仍然全库禁用**。
+校验工具里另加一道闸把 `st.html(` 收紧到这一个文件、只许一次。
 
 ## 校验
 
@@ -129,6 +149,8 @@ dashboard/
 （六段，改名或漏删会在这里露出来）、每段都有原生页头（`st.title`）与读数带
 （`st.metric`）与写明数据来源的页脚、有图的段必须配数据抽屉、**抽屉标题全库唯一**、
 段源码里没有 emoji 码位与 `unsafe_allow_html` / `st.divider(`、不写产物目录。
+`st.html(` 另有一道单独的闸：整个 `dashboard/` 只允许 `lib/toc.py` 出现一次，
+别处出现即 FAIL——「外观全部走 config.toml」这条纪律因此没有被悄悄放宽。
 
 `check_palette.py` 是 dataviz 规范里那个 node 校验脚本（本机没装 node）的标准库移植，
 在 `#FCFBF8`（浅色档纸白）与 `#0A1120`（当前在用的深海蓝）两个底色上各跑五个可计算的检查：
@@ -202,6 +224,12 @@ head（`page.banner()` 用装饰性 Altair 图定位，不写 CSS），不是实
   后面所有主题一起跟着换。`1.50` 的行选择只认行首方框（约 30px 宽），点行体不触发。
 - `charts.data_drawer(...)` 抽屉内统一加「下载本表 CSV」按钮，导出与页面同列同
   中文列名，全库一处生效。
+
+页面导航在 `lib/toc.py`：右下角的「目录」胶囊展开成七条，每条给编号、标题、卡数和
+一句定位语；点谁就滚到对应 h1。跳转是浏览器原生片段滚动（`<a href="#anchor">`），
+不触发 rerun，也不新开标签。`↑` 圆钮回到真正的页顶——目标是一个零尺寸的 `#pagetop`
+锚点，放在文档第一个元素的位置，所以落点容得下 running head 与试算 chip。
+不做滚动位置高亮与进度条，两者都要监听滚动事件、需要 JS。
 
 上一轮那三条跨页联动（柱条点选切模型、锚图 on_select、判定书四选一）已经下线：
 页面合成一根之后，「点了要跳到另一页才知道结果」这件事本身就没意义了。

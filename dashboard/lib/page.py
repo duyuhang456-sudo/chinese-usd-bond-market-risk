@@ -115,21 +115,29 @@ def header(title: str, subtitle: str = "", *, crumb: str = "",
 
 
 def section_head(title: str, *, subtitle: str = "", n_cards: int | None = None,
-                 color: str | None = None) -> None:
+                 color: str | None = None, anchor: str | None = None) -> None:
     """主题块头：caps 小标题 + 原生 st.title + 一句导读。
 
     全部用 `st.markdown` / `st.title` 原生元素。**不画装饰图**——一个主题块只允许
     放真图（card 里那几张），免得读者分不清哪张是结论。也不做每块一色的色块头：
     零 CSS 的前提下能换色的只有 theme 主色一条，画不出八槽分类色，与其塞一条装饰
-    rect 假装有主题色，不如让块头就是块头。
+     rect 假装有主题色，不如让块头就是块头。
+
+    anchor 不传时按标题去 `lib/toc.py` 的目录表查。Streamlit 自动生成的锚点会把
+    中文剥空、退化成哈希，目录里的 `#中文标题` 因此跳不过去；显式 ASCII 锚点才跳得动。
     """
     import streamlit as st
+
+    if anchor is None:
+        from . import toc
+
+        anchor = toc.anchor_for(title)
 
     # caps 小标题只在它比大标题多说一句话时才有意义（张数）。没有张数可报时
     # 那一行就是标题的原样重复——封面上会连着出现两个「本页一览」。
     if n_cards:
         st.markdown(f":gray[{title.upper()} · {n_cards} 张卡]")
-    st.title(title)
+    st.title(title, anchor=anchor)
     if subtitle:
         st.caption(subtitle)
 
