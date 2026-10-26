@@ -30,7 +30,7 @@ class Entry:
     """目录里的一行，也是正文那个 h1 的锚点来源。"""
 
     anchor: str          # 正文 st.title 的 anchor，同时是 href="#…"
-    no: str              # 面板里的编号；正文标题不带编号
+    no: str              # 面板编号，必须对上正文卡号的前缀（1.x → 01）；封面与附录不编号
     title: str           # 正文 h1 的原文，page.section_head 靠它查锚点
     count: str           # 这一段有多少内容，给读者一个长度预期
     hint: str            # 一句定位语，说这一段在回答什么
@@ -38,13 +38,13 @@ class Entry:
 
 
 SECTIONS: tuple[Entry, ...] = (
-    Entry("cover", "01", "本页一览", "4 数字", "项目主结论与锚点表"),
-    Entry("data", "02", "数据与因子概览", "9 张", "报价、复权、因子拆分"),
-    Entry("var", "03", "VaR 模型对比看板", "10 张", "八个模型逐日比一遍"),
-    Entry("stress", "04", "压力测试交互分析", "8 张", "30 个情景与缓冲占比"),
-    Entry("stress-appendix", "05", "情景库附录", "6 张", "情景库怎么建、换窗口", sub=True),
-    Entry("robust", "06", "稳健性检验探索", "7 张", "失败率与三项检验"),
-    Entry("verdict", "07", "结论与边界", "10 条", "八条结论、两条边界"),
+    Entry("cover", "", "本页一览", "4 数字", "项目主结论与锚点表"),
+    Entry("data", "01", "数据与因子概览", "9 张", "报价、复权、因子拆分"),
+    Entry("var", "02", "VaR 模型对比看板", "10 张", "八个模型逐日比一遍"),
+    Entry("stress", "03", "压力测试交互分析", "8 张", "30 个情景与缓冲占比"),
+    Entry("stress-appendix", "", "情景库附录", "6 张", "情景库怎么建、换窗口", sub=True),
+    Entry("robust", "04", "稳健性检验探索", "7 张", "失败率与三项检验"),
+    Entry("verdict", "05", "结论与边界", "10 条", "八条结论、两条边界"),
 )
 
 _BY_TITLE = {e.title: e.anchor for e in SECTIONS}
